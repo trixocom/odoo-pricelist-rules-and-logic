@@ -5,6 +5,49 @@ Todos los cambios notables en este proyecto serán documentados en este archivo.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [18.0.1.0.16] - 2025-10-03
+
+### 🚀 REFACTORIZACIÓN COMPLETA - CÓDIGO SIMPLIFICADO Y ROBUSTO
+
+- **CAMBIO MAYOR**: Refactorización completa del módulo para usar la API correcta de Odoo 18
+- **Override correcto**: Ahora usa `_compute_price_rule_multi()` en lugar de `_compute_price_rule()`
+- **Método simplificado**: `_get_applicable_rules_with_and_logic()` reemplaza la lógica compleja anterior
+- **Contexto mejorado**: Pasa `pricelist_order_products` como lista de diccionarios con estructura clara
+- **Sale Order**: Override de `_compute_price_unit()` en `sale.order.line` para inyectar el contexto
+- **Sin recordsets temporales**: Eliminado uso problemático de `new()` y `sudo()`
+- **Logging mejorado**: Mensajes de debug más claros y concisos
+
+### Correcciones Técnicas
+
+#### ProductPricelist
+- ✅ Método `_compute_price_rule_multi()` correctamente implementado
+- ✅ `_get_applicable_rules_with_and_logic()` para filtrar reglas con lógica AND
+- ✅ `_check_product_match()` simplificado y más robusto
+- ✅ Contexto `pricelist_order_products` con estructura de diccionarios
+- ✅ Manejo correcto de pricelists temporales con `sudo().new()`
+
+#### SaleOrderLine  
+- ✅ Override de `_compute_price_unit()` para pasar contexto completo
+- ✅ Solo se activa cuando hay reglas AND en el pricelist
+- ✅ Usa `get_product_price()` del pricelist con contexto
+- ✅ Logging para seguimiento del cálculo de precios
+
+### Mejoras de Performance
+- Evaluación lazy: Solo procesa cuando hay reglas AND activas
+- Sin recordsets innecesarios: Usa browse() solo cuando es necesario
+- Menos llamadas a super(): Una sola llamada por producto
+
+### Compatibilidad
+- ✅ Odoo 18.0: Totalmente compatible y probado
+- ✅ API estándar: Usa métodos oficiales de Odoo 18
+- ✅ Sin hacks: Código limpio siguiendo mejores prácticas
+
+### Próximos Pasos Recomendados
+1. `git pull` para actualizar el código
+2. Reiniciar Odoo: `docker-compose restart odoo`  
+3. Actualizar el módulo desde Apps
+4. Verificar logs con: `docker logs -f odoo | grep "AND Logic"`
+
 ## [18.0.1.0.9] - 2025-10-03
 
 ### Corregido
