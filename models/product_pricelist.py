@@ -52,7 +52,8 @@ class ProductPricelist(models.Model):
         
         # Verificar cantidad mínima
         if item.min_quantity:
-            product_uom = item.product_uom_id or product.uom_id
+            # En Odoo 18 el campo es product_uom, no product_uom_id
+            product_uom = item.product_uom or product.uom_id
             if uom_id and uom_id != product_uom:
                 # Convertir cantidad a la UoM de la regla
                 try:
