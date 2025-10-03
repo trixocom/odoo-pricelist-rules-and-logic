@@ -131,24 +131,50 @@ class ProductPricelist(models.Model):
         # Caso por defecto: asumir que ya está en el formato correcto
         return products_qty_partner
 
-    def _get_order_lines_products(self, order):
+    def _get_order_lines_products(self, product, partner):
         """
-        Obtiene todos los productos y cantidades de una orden de venta.
-        Retorna una lista de tuplas (product, qty, partner).
+        CRÍTICO: Obtiene todos los productos de la orden de venta actual.
+        Esto es necesario para evaluar las reglas AND correctamente.
         """
-        if not order:
-            return []
+        # Buscar la orden de venta actual desde las líneas que contienen este producto
+        SaleOrderLine = self.env['sale.order.line']
         
-        products_info = []
-        for line in order.order_line:
-            if line.product_id:
-                products_info.append((
-                    line.product_id,
-                    line.product_uom_qty,
-                    order.partner_id
-                ))
+        # Buscar en el contexto si hay una orden activa
+        order_id = self.env.context.get('order_id')
+        if order_id:
+            order = self.env['sale.order'].browse(order_id)
+            if order and order.order_line:
+                products_info = []
+                for line in order.order_line:
+                    if line.product_id:
+                        products_info.append((
+                            line.product_id,
+                            line.product_uom_qty,
+                            order.partner_id
+                        ))
+                return products_info
         
-        return products_info
+        # Método alternativo: buscar líneas en borrador del mismo partner con este producto
+        lines = SaleOrderLine.search([
+            ('product_id', '=', product.id),
+            ('order_id.partner_id', '=', partner.id if partner else False),
+            ('state', 'in', ['draft', 'sent'])
+        ], limit=1)
+        
+        if lines and lines.order_id:
+            order = lines.order_id
+            products_info = []
+            for line in order.order_line:
+                if line.product_id:
+                    products_info.append((
+                        line.product_id,
+                        line.product_uom_qty,
+                        order.partner_id
+                    ))
+            return products_info
+        
+        # Si no se encuentra orden, retornar solo este producto
+        return []
 
     def _get_applicable_pricelist_items(self, products_qty_partner, date, uom_id):
         """
@@ -176,6 +202,29 @@ class ProductPricelist(models.Model):
         
         if not and_items:
             return all_items
+        
+        # Si hay reglas AND pero solo tenemos 1 producto, intentar obtener toda la orden
+        if len(products_qty_partner) == 1 and and_items:
+            prod_info = products_qty_partner[0]
+            if isinstance(prod_info, (list, tuple)):
+                if len(prod_info) >= 3:
+                    product, qty, partner = prod_info[0], prod_info[1], prod_info[2]
+                elif len(prod_info) == 2:
+                    product, qty = prod_info[0], prod_info[1]
+                    partner = False
+                else:
+                    product = prod_info[0]
+                    qty = 1.0
+                    partner = False
+            else:
+                product = prod_info
+                qty = 1.0
+                partner = False
+            
+            # Intentar obtener todos los productos de la orden
+            order_products = self._get_order_lines_products(product, partner)
+            if order_products:
+                products_qty_partner = order_products
         
         # Agrupar por grupos AND
         and_groups = {}
