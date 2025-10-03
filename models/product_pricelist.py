@@ -54,6 +54,21 @@ class ProductPricelist(models.Model):
         if item.min_quantity:
             # En Odoo 18 el campo es product_uom, no product_uom_id
             product_uom = item.product_uom or product.uom_id
+            
+            # CRÍTICO: Asegurar que product_uom sea un recordset
+            if not hasattr(product_uom, 'rounding'):
+                # Si no tiene el atributo rounding, es un ID - convertir a recordset
+                if product_uom:
+                    product_uom = self.env['uom.uom'].browse(int(product_uom))
+                else:
+                    product_uom = product.uom_id
+            
+            # CRÍTICO: Asegurar que uom_id también sea un recordset si existe
+            if uom_id:
+                if not hasattr(uom_id, '_compute_quantity'):
+                    # Si no tiene método _compute_quantity, es un ID - convertir a recordset
+                    uom_id = self.env['uom.uom'].browse(int(uom_id))
+            
             if uom_id and uom_id != product_uom:
                 # Convertir cantidad a la UoM de la regla
                 try:

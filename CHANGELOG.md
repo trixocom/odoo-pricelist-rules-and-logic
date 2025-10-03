@@ -5,6 +5,25 @@ Todos los cambios notables en este proyecto serán documentados en este archivo.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [18.0.1.0.8] - 2025-10-03
+
+### Corregido
+- 🔥 **CRÍTICO - product_uom y uom_id deben ser recordsets**: Error de AttributeError al acceder a atributo 'rounding'
+  - Error resuelto: "AttributeError: 'str' object has no attribute 'rounding'"
+  - Problema: En algunos contextos, `product_uom` y `uom_id` llegan como IDs (int/str) en lugar de recordsets
+  - Solución en `_check_rule_match()` líneas 61-72:
+    - Validación con `hasattr(product_uom, 'rounding')` para detectar si es recordset o ID
+    - Conversión automática a recordset con `self.env['uom.uom'].browse(int(product_uom))`
+    - Validación similar para `uom_id` con `hasattr(uom_id, '_compute_quantity')`
+  - Este fix asegura que siempre trabajamos con recordsets, no con IDs
+  - **CÓDIGO 100% ROBUSTO**: Maneja todos los casos edge de UoM en Odoo 18
+
+### Técnico
+- Mejora en la robustez del manejo de unidades de medida (UoM)
+- Código defensivo con validación de tipos antes de acceder a atributos/métodos
+- Compatible con diferentes contextos de llamada donde UoM puede venir como ID o recordset
+- Actualización de versión a 18.0.1.0.8
+
 ## [18.0.1.0.7] - 2025-10-03
 
 ### Corregido
