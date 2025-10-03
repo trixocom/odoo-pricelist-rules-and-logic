@@ -126,7 +126,7 @@ class ProductPricelist(models.Model):
         return True
 
     @api.model
-    def _compute_price_rule(self, products_qty_partner, date=False, uom_id=False):
+    def _compute_price_rule(self, products_qty_partner, date=False, uom_id=False, **kwargs):
         """
         Override del método principal de cálculo de precios para Odoo 18.
         Implementa lógica AND para grupos de reglas.
@@ -135,6 +135,7 @@ class ProductPricelist(models.Model):
         - products_qty_partner: lista de tuplas (product, qty, partner)
         - date: fecha de aplicación
         - uom_id: unidad de medida
+        - **kwargs: otros parámetros como compute_price, etc.
         """
         self.ensure_one()
         
@@ -144,9 +145,9 @@ class ProductPricelist(models.Model):
         # Obtener items filtrados (incluyendo lógica AND)
         items = self._compute_price_rule_get_items(products_qty_partner, date, uom_id)
         
-        # Llamar al método padre con los items filtrados
+        # Llamar al método padre con los items filtrados y todos los kwargs
         results = super(ProductPricelist, self)._compute_price_rule(
-            products_qty_partner, date=date, uom_id=uom_id
+            products_qty_partner, date=date, uom_id=uom_id, **kwargs
         )
         
         return results
