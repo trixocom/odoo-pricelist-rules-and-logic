@@ -36,10 +36,16 @@ class SaleOrderLine(models.Model):
                 all_order_products=order_products
             )
             
-            # CORREGIDO: Llamar correctamente con kwargs
-            line.pricelist_item_id = pricelist_with_context._get_product_rule(
+            # CORREGIDO: _get_product_rule retorna una tupla (price, rule_id)
+            result = pricelist_with_context._get_product_rule(
                 product=line.product_id,
                 quantity=line.product_uom_qty,
                 uom=line.product_uom,
                 date=line.order_id.date_order,
-            )[1]
+            )
+            
+            # result es una tupla (price, rule_id) o solo rule_id dependiendo del contexto
+            if isinstance(result, tuple):
+                line.pricelist_item_id = result[1]  # El segundo elemento es el rule_id
+            else:
+                line.pricelist_item_id = result
