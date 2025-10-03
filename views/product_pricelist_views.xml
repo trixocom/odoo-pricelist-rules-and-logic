@@ -23,8 +23,8 @@
             <field name="model">product.pricelist.item</field>
             <field name="inherit_id" ref="product.product_pricelist_item_tree_view"/>
             <field name="arch" type="xml">
-                <!-- Agregar campos a la vista de árbol -->
-                <xpath expr="//tree" position="inside">
+                <!-- Agregar campos a la vista de árbol después del campo name -->
+                <xpath expr="//field[@name='name']" position="after">
                     <field name="apply_and_logic" optional="show"/>
                     <field name="and_group" optional="show"/>
                 </xpath>
