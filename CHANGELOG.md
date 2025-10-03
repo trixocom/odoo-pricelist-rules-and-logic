@@ -5,6 +5,19 @@ Todos los cambios notables en este proyecto serán documentados en este archivo.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [18.0.1.0.3] - 2025-10-03
+
+### Corregido
+- 🐛 **Parámetro compute_price en _compute_price_rule**: Corregido TypeError al procesar órdenes de venta
+  - Agregado parámetro explícito `compute_price=True` en la firma del método `_compute_price_rule()`
+  - Error resuelto: "TypeError: ProductPricelist._compute_price_rule() got an unexpected keyword argument 'compute_price'"
+  - El método `_get_product_rule()` de Odoo 18 llama a `_compute_price_rule()` con `compute_price=False`
+  - Firma actualizada: `def _compute_price_rule(self, products_qty_partner, date=False, uom_id=False, compute_price=True, **kwargs)`
+
+### Técnico
+- Mejora en compatibilidad con API estándar de Odoo 18 para listas de precios
+- Firma de método ahora coincide exactamente con la esperada por el core de Odoo 18
+
 ## [18.0.1.0.2] - 2025-10-03
 
 ### Corregido
