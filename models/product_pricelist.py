@@ -2,6 +2,9 @@
 
 from odoo import models, fields, api
 from odoo.tools import float_compare
+import logging
+
+_logger = logging.getLogger(__name__)
 
 
 class ProductPricelistItem(models.Model):
@@ -131,51 +134,6 @@ class ProductPricelist(models.Model):
         # Caso por defecto: asumir que ya está en el formato correcto
         return products_qty_partner
 
-    def _get_order_lines_products(self, product, partner):
-        """
-        CRÍTICO: Obtiene todos los productos de la orden de venta actual.
-        Esto es necesario para evaluar las reglas AND correctamente.
-        """
-        # Buscar la orden de venta actual desde las líneas que contienen este producto
-        SaleOrderLine = self.env['sale.order.line']
-        
-        # Buscar en el contexto si hay una orden activa
-        order_id = self.env.context.get('order_id')
-        if order_id:
-            order = self.env['sale.order'].browse(order_id)
-            if order and order.order_line:
-                products_info = []
-                for line in order.order_line:
-                    if line.product_id:
-                        products_info.append((
-                            line.product_id,
-                            line.product_uom_qty,
-                            order.partner_id
-                        ))
-                return products_info
-        
-        # Método alternativo: buscar líneas en borrador del mismo partner con este producto
-        lines = SaleOrderLine.search([
-            ('product_id', '=', product.id),
-            ('order_id.partner_id', '=', partner.id if partner else False),
-            ('state', 'in', ['draft', 'sent'])
-        ], limit=1)
-        
-        if lines and lines.order_id:
-            order = lines.order_id
-            products_info = []
-            for line in order.order_line:
-                if line.product_id:
-                    products_info.append((
-                        line.product_id,
-                        line.product_uom_qty,
-                        order.partner_id
-                    ))
-            return products_info
-        
-        # Si no se encuentra orden, retornar solo este producto
-        return []
-
     def _get_applicable_pricelist_items(self, products_qty_partner, date, uom_id):
         """
         Obtiene los items aplicables de la pricelist considerando la lógica AND.
@@ -191,6 +149,14 @@ class ProductPricelist(models.Model):
         # Normalizar products_qty_partner
         products_qty_partner = self._normalize_products_qty_partner(products_qty_partner)
         
+        # NUEVO: Intentar obtener todos los productos desde el contexto
+        all_order_products = self.env.context.get('all_order_products')
+        if all_order_products:
+            _logger.info(f"AND Logic: Usando productos del contexto: {len(all_order_products)} productos")
+            products_qty_partner = all_order_products
+        else:
+            _logger.info(f"AND Logic: Productos recibidos: {len(products_qty_partner)} producto(s)")
+        
         # Obtener todos los items activos de esta pricelist
         all_items = self.item_ids.filtered(lambda i: not i.date_start or i.date_start <= date).filtered(
             lambda i: not i.date_end or i.date_end >= date
@@ -203,28 +169,7 @@ class ProductPricelist(models.Model):
         if not and_items:
             return all_items
         
-        # Si hay reglas AND pero solo tenemos 1 producto, intentar obtener toda la orden
-        if len(products_qty_partner) == 1 and and_items:
-            prod_info = products_qty_partner[0]
-            if isinstance(prod_info, (list, tuple)):
-                if len(prod_info) >= 3:
-                    product, qty, partner = prod_info[0], prod_info[1], prod_info[2]
-                elif len(prod_info) == 2:
-                    product, qty = prod_info[0], prod_info[1]
-                    partner = False
-                else:
-                    product = prod_info[0]
-                    qty = 1.0
-                    partner = False
-            else:
-                product = prod_info
-                qty = 1.0
-                partner = False
-            
-            # Intentar obtener todos los productos de la orden
-            order_products = self._get_order_lines_products(product, partner)
-            if order_products:
-                products_qty_partner = order_products
+        _logger.info(f"AND Logic: Encontradas {len(and_items)} reglas AND activas")
         
         # Agrupar por grupos AND
         and_groups = {}
@@ -237,6 +182,8 @@ class ProductPricelist(models.Model):
         valid_and_items = self.env['product.pricelist.item']
         
         for group_id, group_items in and_groups.items():
+            _logger.info(f"AND Logic: Evaluando grupo {group_id} con {len(group_items)} reglas")
+            
             # Para que el grupo sea válido, CADA regla debe tener al menos
             # UN producto del pedido que haga match
             group_is_valid = True
@@ -265,22 +212,29 @@ class ProductPricelist(models.Model):
                     
                     # Verificar si este producto hace match con la regla
                     if self._check_rule_match(rule_item, product, qty, partner, date, uom_id):
+                        _logger.info(f"AND Logic: Regla {rule_item.id} (producto {rule_item.product_id.name if rule_item.product_id else 'N/A'}) hace MATCH con {product.name} (qty: {qty})")
                         rule_has_match = True
                         break  # Ya encontramos un match, no seguir buscando
                 
                 # Si esta regla NO tiene ningún producto que haga match,
                 # entonces TODO el grupo AND es inválido
                 if not rule_has_match:
+                    _logger.info(f"AND Logic: Regla {rule_item.id} NO tiene match - Grupo {group_id} DESCARTADO")
                     group_is_valid = False
                     break  # No seguir verificando las demás reglas de este grupo
             
             # Si TODAS las reglas del grupo tienen al menos un producto que hace match,
             # entonces el grupo es válido y agregamos todas sus reglas
             if group_is_valid:
+                _logger.info(f"AND Logic: Grupo {group_id} es VÁLIDO - Aplicando {len(group_items)} reglas")
                 valid_and_items |= self.env['product.pricelist.item'].browse([i.id for i in group_items])
+            else:
+                _logger.info(f"AND Logic: Grupo {group_id} es INVÁLIDO - Descartando reglas")
         
         # Retornar reglas normales + reglas AND válidas
-        return normal_items | valid_and_items
+        result = normal_items | valid_and_items
+        _logger.info(f"AND Logic: Retornando {len(result)} reglas totales ({len(normal_items)} normales + {len(valid_and_items)} AND)")
+        return result
 
     @api.model
     def _compute_price_rule(self, products_qty_partner, date=False, uom_id=False, compute_price=True, **kwargs):

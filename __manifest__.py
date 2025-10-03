@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Pricelist Rules AND Logic',
-    'version': '18.0.1.0.10',
+    'version': '18.0.1.0.11',
     'category': 'Sales',
     'summary': 'Implementa lógica AND entre reglas seleccionadas de lista de precios',
     'description': """
@@ -19,6 +19,7 @@
         * Compatible con la lógica estándar de Odoo
         * Fácil configuración desde la interfaz de usuario
         * Detecta automáticamente todos los productos de la orden de venta
+        * Logging detallado para depuración
         
         Versiones Soportadas:
         --------------------
