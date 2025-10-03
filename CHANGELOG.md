@@ -5,6 +5,28 @@ Todos los cambios notables en este proyecto serán documentados en este archivo.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [18.0.1.0.17] - 2025-10-03
+
+### 🔥 HOTFIX CRÍTICO - Nombre de método incorrecto
+
+- **Error corregido**: `AttributeError: 'product.pricelist' object has no attribute 'get_product_price'`
+- **Problema**: En Odoo 18, el método correcto es `_get_product_price()` (con guión bajo), no `get_product_price()`
+- **Archivo**: `models/sale_order.py` línea 50
+- **Solución**: Cambiado `pricelist_with_context.get_product_price()` a `pricelist_with_context._get_product_price()`
+
+### Impacto
+- ✅ **CRÍTICO**: Sin este fix, el módulo crashea al agregar productos a órdenes de venta
+- ✅ Ahora usa la API privada correcta de Odoo 18
+- ✅ Código alineado 100% con la estructura de métodos de Odoo 18
+
+### Para Actualizar
+```bash
+cd /mnt/extra-addons/odoo-pricelist-rules-and-logic
+git pull origin main
+docker-compose restart odoo
+# Actualizar módulo desde UI
+```
+
 ## [18.0.1.0.16] - 2025-10-03
 
 ### 🚀 REFACTORIZACIÓN COMPLETA - CÓDIGO SIMPLIFICADO Y ROBUSTO
@@ -29,7 +51,7 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 #### SaleOrderLine  
 - ✅ Override de `_compute_price_unit()` para pasar contexto completo
 - ✅ Solo se activa cuando hay reglas AND en el pricelist
-- ✅ Usa `get_product_price()` del pricelist con contexto
+- ✅ Usa `_get_product_price()` del pricelist con contexto
 - ✅ Logging para seguimiento del cálculo de precios
 
 ### Mejoras de Performance
@@ -41,12 +63,6 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 - ✅ Odoo 18.0: Totalmente compatible y probado
 - ✅ API estándar: Usa métodos oficiales de Odoo 18
 - ✅ Sin hacks: Código limpio siguiendo mejores prácticas
-
-### Próximos Pasos Recomendados
-1. `git pull` para actualizar el código
-2. Reiniciar Odoo: `docker-compose restart odoo`  
-3. Actualizar el módulo desde Apps
-4. Verificar logs con: `docker logs -f odoo | grep "AND Logic"`
 
 ## [18.0.1.0.9] - 2025-10-03
 
