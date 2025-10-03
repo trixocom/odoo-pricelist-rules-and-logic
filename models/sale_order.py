@@ -1,51 +1,61 @@
 # -*- coding: utf-8 -*-
 
-from odoo import models, api
+from odoo import models, api, fields
+import logging
+
+_logger = logging.getLogger(__name__)
 
 
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
 
     @api.depends('product_id', 'product_uom', 'product_uom_qty')
-    def _compute_pricelist_item_id(self):
-        """
-        Override para pasar el contexto de la orden completa al cálculo de precios.
-        Esto permite que las reglas AND evalúen todos los productos de la orden.
-        """
+    def _compute_price_unit(self):
+        """Override para pasar contexto con todos los productos de la orden"""
         for line in self:
-            if not line.product_id or not line.order_id.pricelist_id:
-                line.pricelist_item_id = False
+            if not line.product_id or not line.order_id or not line.order_id.pricelist_id:
                 continue
             
-            # Preparar todos los productos de la orden para evaluación AND
-            order_products = []
+            # Verificar si el pricelist tiene reglas AND
+            pricelist = line.order_id.pricelist_id
+            has_and_rules = any(
+                item.apply_and_logic and item.and_group > 0 
+                for item in pricelist.item_ids
+            )
+            
+            if not has_and_rules:
+                # Sin reglas AND, usar comportamiento estándar
+                continue
+            
+            # Preparar datos de todos los productos de la orden
+            order_products_data = []
             for order_line in line.order_id.order_line:
                 if order_line.product_id:
-                    order_products.append((
-                        order_line.product_id,
-                        order_line.product_uom_qty,
-                        line.order_id.partner_id
-                    ))
+                    order_products_data.append({
+                        'product': order_line.product_id,
+                        'qty': order_line.product_uom_qty,
+                        'partner': line.order_id.partner_id
+                    })
             
-            # Llamar al método con todos los productos de la orden
-            pricelist = line.order_id.pricelist_id
+            _logger.info(f"AND Logic: Computando precio para {line.product_id.name} con {len(order_products_data)} productos en contexto")
             
-            # Pasar el contexto con el order_id
+            # Agregar el contexto con todos los productos
             pricelist_with_context = pricelist.with_context(
-                order_id=line.order_id.id,
-                all_order_products=order_products
+                pricelist_order_products=order_products_data
             )
             
-            # CORREGIDO: _get_product_rule retorna una tupla (price, rule_id)
-            result = pricelist_with_context._get_product_rule(
-                product=line.product_id,
-                quantity=line.product_uom_qty,
-                uom=line.product_uom,
+            # Calcular precio usando el pricelist con contexto
+            price = pricelist_with_context.get_product_price(
+                line.product_id,
+                line.product_uom_qty,
+                line.order_id.partner_id,
                 date=line.order_id.date_order,
+                uom_id=line.product_uom.id
             )
             
-            # result es una tupla (price, rule_id) o solo rule_id dependiendo del contexto
-            if isinstance(result, tuple):
-                line.pricelist_item_id = result[1]  # El segundo elemento es el rule_id
-            else:
-                line.pricelist_item_id = result
+            if price != line.price_unit:
+                _logger.info(f"AND Logic: Precio actualizado de {line.price_unit} a {price}")
+                line.price_unit = price
+        
+        # Llamar al super para líneas sin lógica AND
+        return super()._compute_price_unit()
