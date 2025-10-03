@@ -5,6 +5,25 @@ Todos los cambios notables en este proyecto serán documentados en este archivo.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [18.0.1.0.2] - 2025-10-03
+
+### Corregido
+- 🐛 **XPath en vista tree**: Corregido error de ParseError al heredar vista tree de items de lista de precios
+  - Cambio de `//tree` con `position="inside"` a xpath específico apuntando al campo `name`
+  - Solución: `<xpath expr="//field[@name='name']" position="after">` para agregar campos
+  - El error ocurría porque Odoo 18 requiere xpaths más específicos en herencia de vistas
+  - Error resuelto: "El elemento '<xpath expr="//tree">' no se puede localizar en la vista principal"
+
+### Técnico
+- Mejora en la herencia de vistas para mayor compatibilidad con Odoo 18
+- Código más robusto siguiendo mejores prácticas de Odoo para herencia de vistas
+
+## [18.0.1.0.1] - 2025-10-03
+
+### Actualizado
+- Versión inicial publicada en GitHub
+- Documentación completa agregada
+
 ## [18.0.1.0.0] - 2025-10-03
 
 ### Actualizado para Odoo 18.0
