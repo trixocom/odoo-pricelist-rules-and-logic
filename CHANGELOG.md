@@ -5,6 +5,21 @@ Todos los cambios notables en este proyecto serán documentados en este archivo.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [18.0.1.0.4] - 2025-10-03
+
+### Corregido
+- 🐛 **Método _compute_price_rule_get_items inexistente**: Corregido AttributeError al agregar productos a órdenes de venta
+  - Error resuelto: "AttributeError: 'super' object has no attribute '_compute_price_rule_get_items'"
+  - El método `_compute_price_rule_get_items()` no existe en Odoo 18, fue un método que asumimos incorrectamente
+  - Solución: Eliminado el override de `_compute_price_rule_get_items` y movida toda la lógica a `_compute_price_rule`
+  - Nuevo método: `_get_applicable_pricelist_items()` para obtener items filtrados según lógica AND
+  - Modificación temporal de `self.item_ids` para filtrar items antes de llamar al super()
+
+### Técnico
+- Refactorización completa del manejo de filtrado de items de pricelist
+- Enfoque más robusto que no depende de métodos inexistentes en la API de Odoo 18
+- Mejor manejo del ciclo de vida de los items durante el cálculo de precios
+
 ## [18.0.1.0.3] - 2025-10-03
 
 ### Corregido
