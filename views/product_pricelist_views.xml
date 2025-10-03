@@ -7,11 +7,13 @@
             <field name="model">product.pricelist.item</field>
             <field name="inherit_id" ref="product.product_pricelist_item_form_view"/>
             <field name="arch" type="xml">
-                <!-- Agregar campos después de la secuencia -->
-                <field name="sequence" position="after">
-                    <field name="apply_and_logic"/>
-                    <field name="and_group" invisible="not apply_and_logic"/>
-                </field>
+                <!-- Agregar campos al inicio del formulario usando xpath -->
+                <xpath expr="//form/sheet" position="inside">
+                    <group name="and_logic_group" string="Lógica AND">
+                        <field name="apply_and_logic"/>
+                        <field name="and_group" invisible="not apply_and_logic"/>
+                    </group>
+                </xpath>
             </field>
         </record>
 
@@ -21,10 +23,11 @@
             <field name="model">product.pricelist.item</field>
             <field name="inherit_id" ref="product.product_pricelist_item_tree_view"/>
             <field name="arch" type="xml">
-                <field name="sequence" position="after">
+                <!-- Agregar campos a la vista de árbol -->
+                <xpath expr="//tree" position="inside">
                     <field name="apply_and_logic" optional="show"/>
                     <field name="and_group" optional="show"/>
-                </field>
+                </xpath>
             </field>
         </record>
     </data>
