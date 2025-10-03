@@ -5,6 +5,19 @@ Todos los cambios notables en este proyecto serán documentados en este archivo.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [18.0.1.0.6] - 2025-10-03
+
+### Corregido
+- 🐛 **Nombre de campo product_uom incorrecto**: Corregido AttributeError en verificación de reglas
+  - Error resuelto: "AttributeError: 'product.pricelist.item' object has no attribute 'product_uom_id'"
+  - En Odoo 18, el campo correcto es `product_uom` no `product_uom_id`
+  - Cambio en línea 55 de `_check_rule_match()`: `item.product_uom` en lugar de `item.product_uom_id`
+  - Este error se manifestaba al verificar la cantidad mínima de una regla con unidad de medida específica
+
+### Técnico
+- Corrección de nombre de campo para compatibilidad con modelo de Odoo 18
+- Mejor alineación con la nomenclatura estándar de campos en Odoo 18
+
 ## [18.0.1.0.5] - 2025-10-03
 
 ### Corregido
