@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Heredar la vista de formulario de items de lista de precios -->
+        <record id="product_pricelist_item_form_view_inherit" model="ir.ui.view">
+            <field name="name">product.pricelist.item.form.inherit</field>
+            <field name="model">product.pricelist.item</field>
+            <field name="inherit_id" ref="product.product_pricelist_item_form_view"/>
+            <field name="arch" type="xml">
+                <!-- Agregar campos después de la secuencia -->
+                <field name="sequence" position="after">
+                    <field name="apply_and_logic"/>
+                    <field name="and_group" attrs="{'invisible': [('apply_and_logic', '=', False)]}"/>
+                </field>
+            </field>
+        </record>
+
+        <!-- Heredar la vista de árbol de items de lista de precios -->
+        <record id="product_pricelist_item_tree_view_inherit" model="ir.ui.view">
+            <field name="name">product.pricelist.item.tree.inherit</field>
+            <field name="model">product.pricelist.item</field>
+            <field name="inherit_id" ref="product.product_pricelist_item_tree_view"/>
+            <field name="arch" type="xml">
+                <field name="sequence" position="after">
+                    <field name="apply_and_logic" optional="show"/>
+                    <field name="and_group" optional="show"/>
+                </field>
+            </field>
+        </record>
+    </data>
+</odoo>
