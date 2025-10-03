@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Pricelist Rules AND Logic',
-    'version': '18.0.1.0.0',
+    'version': '18.0.1.0.1',
     'category': 'Sales',
     'summary': 'Implementa lógica AND entre reglas seleccionadas de lista de precios',
     'description': """
@@ -22,7 +22,7 @@
         Versiones Soportadas:
         --------------------
         * Odoo 18.0
-        * Odoo 17.0 (cambiar version a 17.0.1.0.0)
+        * Odoo 17.0 (cambiar version a 17.0.1.0.1)
     """,
     'author': 'TRX',
     'website': 'https://github.com/trixocom/odoo-pricelist-rules-and-logic',
