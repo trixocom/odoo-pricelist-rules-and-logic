@@ -44,8 +44,8 @@ class SaleOrderLine(models.Model):
                 pricelist_order_products=order_products_data
             )
             
-            # Calcular precio usando el pricelist con contexto
-            price = pricelist_with_context.get_product_price(
+            # Calcular precio usando el pricelist con contexto - MÉTODO CORRECTO EN ODOO 18
+            price = pricelist_with_context._get_product_price(
                 line.product_id,
                 line.product_uom_qty,
                 line.order_id.partner_id,
