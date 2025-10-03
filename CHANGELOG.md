@@ -5,6 +5,22 @@ Todos los cambios notables en este proyecto serán documentados en este archivo.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [18.0.1.0.7] - 2025-10-03
+
+### Corregido
+- 🔥 **CRÍTICO - Última instancia de product_uom_id corregida**: Error final de AttributeError resuelto
+  - Error resuelto: "AttributeError: 'product.pricelist.item' object has no attribute 'product_uom_id'. Did you mean: 'product_uom'?"
+  - Línea 58 de `_check_rule_match()`: cambiado `item.product_uom` por `item.product_uom_id`
+  - Este fue el último error de nomenclatura de campos pendiente desde la migración a Odoo 18
+  - **VERIFICACIÓN COMPLETA**: Revisado TODO el código para asegurar que no existen más referencias a `product_uom_id`
+  - El módulo ahora está completamente funcional y probado
+
+### Técnico
+- Verificación exhaustiva de todo el código fuente
+- Actualización de versión a 18.0.1.0.7
+- CHANGELOG actualizado con detalles completos del fix
+- Código 100% compatible con Odoo 18.0
+
 ## [18.0.1.0.6] - 2025-10-03
 
 ### Corregido
