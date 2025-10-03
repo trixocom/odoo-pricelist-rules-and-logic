@@ -13,6 +13,11 @@ Módulo de Odoo que permite implementar lógica AND entre reglas seleccionadas d
 - ✅ Interfaz de usuario intuitiva
 - ✅ No rompe funcionalidad existente
 
+## 📚 Documentación
+
+- **[Guía de Uso](USAGE_GUIDE.md)** - Ejemplos detallados, casos de uso y troubleshooting
+- **[Changelog](CHANGELOG.md)** - Historial de versiones y cambios
+
 ## 🚀 Instalación
 
 ### Usando Git
@@ -35,6 +40,22 @@ exit
 docker restart odoo
 ```
 
+### Usando Docker Compose (Desarrollo)
+
+Este repositorio incluye un `docker-compose.yml` listo para usar:
+
+```bash
+# Clonar el repositorio
+git clone https://github.com/trixocom/odoo-pricelist-rules-and-logic.git
+cd odoo-pricelist-rules-and-logic
+
+# Iniciar los servicios
+docker-compose up -d
+
+# Acceder a Odoo en http://localhost:8069
+# PgAdmin en http://localhost:5050 (admin@example.com / admin)
+```
+
 ### Activación
 
 1. Ve a **Aplicaciones** en Odoo
@@ -42,7 +63,7 @@ docker restart odoo
 3. Busca "Pricelist Rules AND Logic"
 4. Haz clic en **Instalar**
 
-## 📖 Uso
+## 📖 Uso Rápido
 
 ### Ejemplo 1: Descuento por Cantidad Y Categoría
 
@@ -84,6 +105,8 @@ Puedes crear diferentes grupos AND para diferentes escenarios:
 - Regla 4: Cantidad >= 100 + AND Grupo = 2
 - Descuento: 20%
 
+📖 **[Ver más ejemplos en la Guía de Uso](USAGE_GUIDE.md)**
+
 ## 🔧 Configuración Técnica
 
 ### Dependencias
@@ -108,46 +131,20 @@ odoo-pricelist-rules-and-logic/
 │   └── product_pricelist.py
 ├── views/
 │   └── product_pricelist_views.xml
-└── README.md
+├── docker-compose.yml
+├── README.md
+├── USAGE_GUIDE.md
+└── CHANGELOG.md
 ```
 
 ## 🐳 Docker & Portainer
 
-### Docker Compose Example
-
-```yaml
-version: '3.8'
-services:
-  odoo:
-    image: odoo:17.0
-    container_name: odoo
-    depends_on:
-      - db
-    ports:
-      - "8069:8069"
-    volumes:
-      - odoo-data:/var/lib/odoo
-      - ./addons:/mnt/extra-addons
-      - ./config:/etc/odoo
-    environment:
-      - HOST=db
-      - USER=odoo
-      - PASSWORD=odoo_password
-
-  db:
-    image: postgres:15
-    container_name: odoo-db
-    environment:
-      - POSTGRES_DB=postgres
-      - POSTGRES_USER=odoo
-      - POSTGRES_PASSWORD=odoo_password
-    volumes:
-      - db-data:/var/lib/postgresql/data
-
-volumes:
-  odoo-data:
-  db-data:
-```
+El proyecto incluye un `docker-compose.yml` completo con:
+- Odoo 17.0
+- PostgreSQL 15
+- PgAdmin (opcional)
+- Volúmenes persistentes
+- Configuración de red
 
 ### Desplegar en Swarm
 
