@@ -57,9 +57,15 @@ class ProductPricelist(models.Model):
             
             # CRÍTICO: Asegurar que product_uom sea un recordset
             if not hasattr(product_uom, 'rounding'):
-                # Si no tiene el atributo rounding, es un ID - convertir a recordset
+                # Si no tiene el atributo rounding, puede ser un ID o un string
                 if product_uom:
-                    product_uom = self.env['uom.uom'].browse(int(product_uom))
+                    # Intentar convertir a int (si es un ID numérico)
+                    try:
+                        uom_id_value = int(product_uom)
+                        product_uom = self.env['uom.uom'].browse(uom_id_value)
+                    except (ValueError, TypeError):
+                        # Si falla, es un string (nombre de UoM) u otro tipo - usar el del producto
+                        product_uom = product.uom_id
                 else:
                     product_uom = product.uom_id
             
@@ -67,7 +73,12 @@ class ProductPricelist(models.Model):
             if uom_id:
                 if not hasattr(uom_id, '_compute_quantity'):
                     # Si no tiene método _compute_quantity, es un ID - convertir a recordset
-                    uom_id = self.env['uom.uom'].browse(int(uom_id))
+                    try:
+                        uom_id_value = int(uom_id)
+                        uom_id = self.env['uom.uom'].browse(uom_id_value)
+                    except (ValueError, TypeError):
+                        # Si falla la conversión, usar None
+                        uom_id = None
             
             if uom_id and uom_id != product_uom:
                 # Convertir cantidad a la UoM de la regla
@@ -120,9 +131,34 @@ class ProductPricelist(models.Model):
         # Caso por defecto: asumir que ya está en el formato correcto
         return products_qty_partner
 
+    def _get_order_lines_products(self, order):
+        """
+        Obtiene todos los productos y cantidades de una orden de venta.
+        Retorna una lista de tuplas (product, qty, partner).
+        """
+        if not order:
+            return []
+        
+        products_info = []
+        for line in order.order_line:
+            if line.product_id:
+                products_info.append((
+                    line.product_id,
+                    line.product_uom_qty,
+                    order.partner_id
+                ))
+        
+        return products_info
+
     def _get_applicable_pricelist_items(self, products_qty_partner, date, uom_id):
         """
         Obtiene los items aplicables de la pricelist considerando la lógica AND.
+        
+        LÓGICA AND CORRECTA:
+        - Para que un grupo AND sea válido, CADA regla del grupo debe tener
+          al menos UN producto en el pedido que haga match con ella.
+        - Si alguna regla del grupo no tiene ningún producto que haga match,
+          entonces TODO el grupo AND se descarta.
         """
         self.ensure_one()
         
@@ -148,41 +184,50 @@ class ProductPricelist(models.Model):
                 and_groups[item.and_group] = []
             and_groups[item.and_group].append(item)
         
-        # Verificar grupos AND
+        # Verificar grupos AND con la LÓGICA CORRECTA
         valid_and_items = self.env['product.pricelist.item']
+        
         for group_id, group_items in and_groups.items():
-            # Verificar que todas las reglas del grupo se cumplan para todos los productos
-            all_products_match = True
+            # Para que el grupo sea válido, CADA regla debe tener al menos
+            # UN producto del pedido que haga match
+            group_is_valid = True
             
-            for prod_info in products_qty_partner:
-                # Desempaquetar la tupla de forma segura
-                if isinstance(prod_info, (list, tuple)):
-                    if len(prod_info) >= 3:
-                        product, qty, partner = prod_info[0], prod_info[1], prod_info[2]
-                    elif len(prod_info) == 2:
-                        product, qty = prod_info[0], prod_info[1]
-                        partner = False
+            # Verificar CADA regla del grupo
+            for rule_item in group_items:
+                # Buscar si HAY AL MENOS UN producto que haga match con esta regla
+                rule_has_match = False
+                
+                for prod_info in products_qty_partner:
+                    # Desempaquetar la tupla de forma segura
+                    if isinstance(prod_info, (list, tuple)):
+                        if len(prod_info) >= 3:
+                            product, qty, partner = prod_info[0], prod_info[1], prod_info[2]
+                        elif len(prod_info) == 2:
+                            product, qty = prod_info[0], prod_info[1]
+                            partner = False
+                        else:
+                            product = prod_info[0]
+                            qty = 1.0
+                            partner = False
                     else:
-                        product = prod_info[0]
+                        product = prod_info
                         qty = 1.0
                         partner = False
-                else:
-                    product = prod_info
-                    qty = 1.0
-                    partner = False
+                    
+                    # Verificar si este producto hace match con la regla
+                    if self._check_rule_match(rule_item, product, qty, partner, date, uom_id):
+                        rule_has_match = True
+                        break  # Ya encontramos un match, no seguir buscando
                 
-                group_matches_for_product = all(
-                    self._check_rule_match(item, product, qty, partner, date, uom_id)
-                    for item in group_items
-                )
-                
-                if not group_matches_for_product:
-                    all_products_match = False
-                    break
+                # Si esta regla NO tiene ningún producto que haga match,
+                # entonces TODO el grupo AND es inválido
+                if not rule_has_match:
+                    group_is_valid = False
+                    break  # No seguir verificando las demás reglas de este grupo
             
-            # Si todas las reglas del grupo se cumplen para todos los productos,
-            # agregamos estas reglas a las válidas
-            if all_products_match:
+            # Si TODAS las reglas del grupo tienen al menos un producto que hace match,
+            # entonces el grupo es válido y agregamos todas sus reglas
+            if group_is_valid:
                 valid_and_items |= self.env['product.pricelist.item'].browse([i.id for i in group_items])
         
         # Retornar reglas normales + reglas AND válidas

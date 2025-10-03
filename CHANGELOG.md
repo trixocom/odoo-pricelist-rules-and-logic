@@ -5,6 +5,35 @@ Todos los cambios notables en este proyecto serán documentados en este archivo.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [18.0.1.0.9] - 2025-10-03
+
+### Corregido
+- 🔥 **CRÍTICO - product_uom puede ser string, ID o recordset**: Error de ValueError al intentar convertir string a int
+  - Error resuelto: "ValueError: invalid literal for int() with base 10: 'Unidades'"
+  - Problema: `product_uom` puede venir como:
+    - Recordset (tiene atributo `rounding`) → usar directamente ✓
+    - ID numérico (int) → convertir con `browse()` ✓
+    - String con nombre de UoM (ej: "Unidades") → usar fallback a `product.uom_id` ✓
+  - Solución en `_check_rule_match()` líneas 61-73:
+    - Intentar conversión a int dentro de try/except
+    - Si falla (ValueError), usar `product.uom_id` como fallback
+    - Mismo manejo robusto para `uom_id`
+  - **LÓGICA AND CORREGIDA**: Ahora verifica correctamente que CADA regla del grupo tenga al menos UN producto que haga match
+  - Antes: Verificaba si cada producto hacía match con TODAS las reglas (lógica invertida) ❌
+  - Ahora: Verifica que CADA regla tenga al menos UN producto en el pedido que haga match ✓
+  - **EJEMPLO**: Reglas AND grupo 1:
+    - Regla A: Producto X, min 10 unidades
+    - Regla B: Producto Y, min 20 unidades
+    - Pedido con solo X (15 unidades) → NO aplica descuento ✓
+    - Pedido con X (15) + Y (25) → SÍ aplica descuento ✓
+
+### Técnico
+- Refactorización completa de `_get_applicable_pricelist_items()` con la lógica AND correcta
+- Manejo robusto de conversiones de UoM con try/except para todos los casos edge
+- Validación mejorada: cada regla debe tener match, no cada producto
+- Documentación actualizada en el código explicando la lógica AND correcta
+- Actualización de versión a 18.0.1.0.9
+
 ## [18.0.1.0.8] - 2025-10-03
 
 ### Corregido
