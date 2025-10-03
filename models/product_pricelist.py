@@ -236,12 +236,17 @@ class ProductPricelist(models.Model):
         _logger.info(f"AND Logic: Retornando {len(result)} reglas totales ({len(normal_items)} normales + {len(valid_and_items)} AND)")
         return result
 
-    def _compute_price_rule_get_items(self, products_qty_partner, date, **kwargs):
+    @api.model
+    def _compute_price_rule(self, products_qty_partner, date=False, uom_id=False, compute_price=True, **kwargs):
         """
-        NUEVO MÉTODO: Override del método que Odoo 18 usa para obtener items.
-        En lugar de modificar self.item_ids (que causa errores), sobrescribimos
-        el método que retorna los items para filtrarlos según lógica AND.
+        Override del método principal de cálculo de precios para Odoo 18.
+        Implementa lógica AND para grupos de reglas creando un pricelist temporal.
         """
+        self.ensure_one()
+        
+        if not date:
+            date = fields.Date.context_today(self)
+        
         # Verificar si hay reglas AND activas
         has_and_rules = any(
             item.apply_and_logic and item.and_group > 0 
@@ -250,29 +255,28 @@ class ProductPricelist(models.Model):
         
         # Si no hay reglas AND, usar el comportamiento estándar
         if not has_and_rules:
-            return super(ProductPricelist, self)._compute_price_rule_get_items(
-                products_qty_partner, date, **kwargs
+            return super(ProductPricelist, self)._compute_price_rule(
+                products_qty_partner, date=date, uom_id=uom_id, compute_price=compute_price, **kwargs
             )
         
-        # Normalizar products_qty_partner
+        # Normalizar products_qty_partner para el procesamiento
         qty = kwargs.get('qty', 1.0)
         partner = kwargs.get('partner', False)
-        uom_id = kwargs.get('uom_id', False)
         normalized_products = self._normalize_products_qty_partner(products_qty_partner, qty, partner)
         
         # Obtener items aplicables considerando lógica AND
         applicable_items = self._get_applicable_pricelist_items(normalized_products, date, uom_id)
         
-        return applicable_items
-
-    @api.model
-    def _compute_price_rule(self, products_qty_partner, date=False, uom_id=False, compute_price=True, **kwargs):
-        """
-        Override del método principal de cálculo de precios para Odoo 18.
-        Ahora usa _compute_price_rule_get_items en lugar de modificar self.item_ids.
-        """
-        # Llamar al método estándar - ahora _compute_price_rule_get_items
-        # se encargará del filtrado
-        return super(ProductPricelist, self)._compute_price_rule(
+        # NUEVO ENFOQUE: Crear un pricelist temporal en memoria con los items filtrados
+        # Usar new() para crear registros en memoria sin tocar la BD
+        temp_pricelist = self.new({
+            'name': self.name,
+            'currency_id': self.currency_id.id,
+            'company_id': self.company_id.id if self.company_id else False,
+            'item_ids': [(6, 0, applicable_items.ids)],
+        })
+        
+        # Llamar al super con el pricelist temporal
+        return super(ProductPricelist, temp_pricelist)._compute_price_rule(
             products_qty_partner, date=date, uom_id=uom_id, compute_price=compute_price, **kwargs
         )
