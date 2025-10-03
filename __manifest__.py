@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Pricelist Rules AND Logic',
-    'version': '17.0.1.0.0',
+    'version': '18.0.1.0.0',
     'category': 'Sales',
     'summary': 'Implementa lógica AND entre reglas seleccionadas de lista de precios',
     'description': """
@@ -18,8 +18,13 @@
         * Evaluación AND de múltiples reglas marcadas
         * Compatible con la lógica estándar de Odoo
         * Fácil configuración desde la interfaz de usuario
+        
+        Versiones Soportadas:
+        --------------------
+        * Odoo 18.0
+        * Odoo 17.0 (cambiar version a 17.0.1.0.0)
     """,
-    'author': 'Tu Nombre/Empresa',
+    'author': 'TRX',
     'website': 'https://github.com/trixocom/odoo-pricelist-rules-and-logic',
     'license': 'LGPL-3',
     'depends': ['product'],
