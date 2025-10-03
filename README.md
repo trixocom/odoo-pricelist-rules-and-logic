@@ -16,6 +16,7 @@ Módulo de Odoo que permite implementar lógica AND entre reglas seleccionadas d
 ## 📚 Documentación
 
 - **[Guía de Uso](USAGE_GUIDE.md)** - Ejemplos detallados, casos de uso y troubleshooting
+- **[Documentación Técnica](TECHNICAL_DOCUMENTATION.md)** - Integración con Odoo 18, arquitectura y debugging
 - **[Changelog](CHANGELOG.md)** - Historial de versiones y cambios
 
 ## 🚀 Instalación
@@ -121,6 +122,8 @@ Puedes crear diferentes grupos AND para diferentes escenarios:
 - ✅ **Odoo 17.0** (compatible - cambiar version en __manifest__.py a 17.0.1.0.0)
 - ⚠️ Odoo 16.0 y anteriores (requieren ajustes en el código)
 
+📖 **[Ver documentación técnica completa](TECHNICAL_DOCUMENTATION.md)**
+
 ## 🏗️ Estructura del Proyecto
 
 ```
@@ -135,6 +138,7 @@ odoo-pricelist-rules-and-logic/
 ├── docker-compose.yml
 ├── README.md
 ├── USAGE_GUIDE.md
+├── TECHNICAL_DOCUMENTATION.md
 └── CHANGELOG.md
 ```
 
