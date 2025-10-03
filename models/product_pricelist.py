@@ -80,11 +80,38 @@ class ProductPricelist(models.Model):
         
         return True
 
+    def _normalize_products_qty_partner(self, products_qty_partner, qty=0, partner=False):
+        """
+        Normaliza el parámetro products_qty_partner para asegurar que sea una lista de tuplas.
+        
+        El método puede ser llamado de dos formas:
+        1. _compute_price_rule([(product1, qty1, partner1), (product2, qty2, partner2)])
+        2. _compute_price_rule(product, qty, partner)
+        
+        Esta función normaliza ambos casos al formato 1.
+        """
+        # Si ya es una lista de tuplas, retornarla
+        if isinstance(products_qty_partner, (list, tuple)) and len(products_qty_partner) > 0:
+            first_elem = products_qty_partner[0]
+            # Verificar si es una lista de tuplas (product, qty, partner)
+            if isinstance(first_elem, (list, tuple)) and len(first_elem) >= 3:
+                return products_qty_partner
+        
+        # Si es un solo producto (recordset), convertirlo a lista de tuplas
+        if hasattr(products_qty_partner, '_name') and products_qty_partner._name == 'product.product':
+            return [(products_qty_partner, qty, partner)]
+        
+        # Caso por defecto: asumir que ya está en el formato correcto
+        return products_qty_partner
+
     def _get_applicable_pricelist_items(self, products_qty_partner, date, uom_id):
         """
         Obtiene los items aplicables de la pricelist considerando la lógica AND.
         """
         self.ensure_one()
+        
+        # Normalizar products_qty_partner
+        products_qty_partner = self._normalize_products_qty_partner(products_qty_partner)
         
         # Obtener todos los items activos de esta pricelist
         all_items = self.item_ids.filtered(lambda i: not i.date_start or i.date_start <= date).filtered(
@@ -111,7 +138,23 @@ class ProductPricelist(models.Model):
             # Verificar que todas las reglas del grupo se cumplan para todos los productos
             all_products_match = True
             
-            for product, qty, partner in products_qty_partner:
+            for prod_info in products_qty_partner:
+                # Desempaquetar la tupla de forma segura
+                if isinstance(prod_info, (list, tuple)):
+                    if len(prod_info) >= 3:
+                        product, qty, partner = prod_info[0], prod_info[1], prod_info[2]
+                    elif len(prod_info) == 2:
+                        product, qty = prod_info[0], prod_info[1]
+                        partner = False
+                    else:
+                        product = prod_info[0]
+                        qty = 1.0
+                        partner = False
+                else:
+                    product = prod_info
+                    qty = 1.0
+                    partner = False
+                
                 group_matches_for_product = all(
                     self._check_rule_match(item, product, qty, partner, date, uom_id)
                     for item in group_items
@@ -136,7 +179,8 @@ class ProductPricelist(models.Model):
         Implementa lógica AND para grupos de reglas.
         
         Este método es compatible con la firma de Odoo 18 donde recibe:
-        - products_qty_partner: lista de tuplas (product, qty, partner)
+        - products_qty_partner: puede ser una lista de tuplas (product, qty, partner) 
+                                o un solo producto con qty y partner en kwargs
         - date: fecha de aplicación
         - uom_id: unidad de medida
         - compute_price: si debe calcular el precio o solo retornar la regla
@@ -159,24 +203,26 @@ class ProductPricelist(models.Model):
                 products_qty_partner, date=date, uom_id=uom_id, compute_price=compute_price, **kwargs
             )
         
-        # Temporalmente deshabilitar las reglas AND que no se deben aplicar
-        items_to_filter = self._get_applicable_pricelist_items(products_qty_partner, date, uom_id)
+        # Normalizar products_qty_partner para el procesamiento
+        qty = kwargs.get('qty', 1.0)
+        partner = kwargs.get('partner', False)
+        normalized_products = self._normalize_products_qty_partner(products_qty_partner, qty, partner)
+        
+        # Obtener items aplicables considerando lógica AND
+        items_to_filter = self._get_applicable_pricelist_items(normalized_products, date, uom_id)
         all_item_ids = set(self.item_ids.ids)
         items_to_keep = set(items_to_filter.ids)
         items_to_disable = all_item_ids - items_to_keep
         
         # Si hay items a deshabilitar temporalmente
         if items_to_disable:
-            # Crear un contexto para marcar los items que deben ser ignorados
-            self_with_context = self.with_context(disabled_pricelist_items=items_to_disable)
-            
             # Filtrar temporalmente los items antes de llamar al super
             original_items = self.item_ids
             try:
                 # Temporalmente modificar item_ids para que super() solo vea los items válidos
                 self.item_ids = items_to_filter
                 
-                result = super(ProductPricelist, self_with_context)._compute_price_rule(
+                result = super(ProductPricelist, self)._compute_price_rule(
                     products_qty_partner, date=date, uom_id=uom_id, compute_price=compute_price, **kwargs
                 )
             finally:
