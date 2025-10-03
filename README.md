@@ -42,7 +42,7 @@ docker restart odoo
 
 ### Usando Docker Compose (Desarrollo)
 
-Este repositorio incluye un `docker-compose.yml` listo para usar:
+Este repositorio incluye un `docker-compose.yml` listo para usar con **Odoo 18**:
 
 ```bash
 # Clonar el repositorio
@@ -111,14 +111,15 @@ Puedes crear diferentes grupos AND para diferentes escenarios:
 
 ### Dependencias
 
-- Odoo 17.0
+- Odoo 18.0 (principal)
+- Odoo 17.0 (compatible)
 - Módulo `product` (incluido en Odoo)
 
 ### Versiones Soportadas
 
-- ✅ Odoo 17.0 (probado)
-- ⚠️ Odoo 16.0 (requiere ajustes menores)
-- ⚠️ Odoo 15.0 (requiere ajustes)
+- ✅ **Odoo 18.0** (totalmente compatible y probado)
+- ✅ **Odoo 17.0** (compatible - cambiar version en __manifest__.py a 17.0.1.0.0)
+- ⚠️ Odoo 16.0 y anteriores (requieren ajustes en el código)
 
 ## 🏗️ Estructura del Proyecto
 
@@ -140,7 +141,7 @@ odoo-pricelist-rules-and-logic/
 ## 🐳 Docker & Portainer
 
 El proyecto incluye un `docker-compose.yml` completo con:
-- Odoo 17.0
+- Odoo 18.0 (última versión)
 - PostgreSQL 15
 - PgAdmin (opcional)
 - Volúmenes persistentes
@@ -169,9 +170,9 @@ docker stack deploy -c docker-compose.yml odoo-stack
 ## 📝 Roadmap
 
 - [ ] Tests unitarios
-- [ ] Soporte para Odoo 16.0 y 15.0
+- [ ] Soporte completo para Odoo 16.0 y 15.0
 - [ ] Operadores OR además de AND
-- [ ] Interfaz visual para crear grupos de reglas
+- [ ] Interfaz visual mejorada para crear grupos de reglas
 - [ ] Validaciones adicionales
 - [ ] Documentación en inglés
 
