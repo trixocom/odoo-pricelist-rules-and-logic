@@ -10,7 +10,7 @@
                 <!-- Agregar campos después de la secuencia -->
                 <field name="sequence" position="after">
                     <field name="apply_and_logic"/>
-                    <field name="and_group" attrs="{'invisible': [('apply_and_logic', '=', False)]}"/>
+                    <field name="and_group" invisible="not apply_and_logic"/>
                 </field>
             </field>
         </record>
