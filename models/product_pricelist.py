@@ -24,51 +24,6 @@ class ProductPricelistItem(models.Model):
 class ProductPricelist(models.Model):
     _inherit = 'product.pricelist'
 
-    def _compute_price_rule_get_items(self, products_qty_partner, date, uom_id):
-        """
-        Override para filtrar items antes de la evaluación principal.
-        Este método es llamado por _compute_price_rule en Odoo 18.
-        """
-        items = super()._compute_price_rule_get_items(products_qty_partner, date, uom_id)
-        
-        # Separar reglas normales de reglas AND
-        and_items = items.filtered(lambda i: i.apply_and_logic and i.and_group > 0)
-        normal_items = items.filtered(lambda i: not i.apply_and_logic or i.and_group == 0)
-        
-        if not and_items:
-            return items
-        
-        # Agrupar por grupos AND
-        and_groups = {}
-        for item in and_items:
-            if item.and_group not in and_groups:
-                and_groups[item.and_group] = []
-            and_groups[item.and_group].append(item)
-        
-        # Verificar grupos AND
-        valid_and_items = self.env['product.pricelist.item']
-        for group_id, group_items in and_groups.items():
-            # Verificar que todas las reglas del grupo se cumplan para todos los productos
-            all_products_match = True
-            
-            for product, qty, partner in products_qty_partner:
-                group_matches_for_product = all(
-                    self._check_rule_match(item, product, qty, partner, date, uom_id)
-                    for item in group_items
-                )
-                
-                if not group_matches_for_product:
-                    all_products_match = False
-                    break
-            
-            # Si todas las reglas del grupo se cumplen para todos los productos,
-            # agregamos estas reglas a las válidas
-            if all_products_match:
-                valid_and_items |= self.env['product.pricelist.item'].browse([i.id for i in group_items])
-        
-        # Retornar reglas normales + reglas AND válidas
-        return normal_items | valid_and_items
-
     def _check_rule_match(self, item, product, quantity, partner, date, uom_id):
         """
         Verifica si una regla individual coincide con los criterios dados.
@@ -125,6 +80,55 @@ class ProductPricelist(models.Model):
         
         return True
 
+    def _get_applicable_pricelist_items(self, products_qty_partner, date, uom_id):
+        """
+        Obtiene los items aplicables de la pricelist considerando la lógica AND.
+        """
+        self.ensure_one()
+        
+        # Obtener todos los items activos de esta pricelist
+        all_items = self.item_ids.filtered(lambda i: not i.date_start or i.date_start <= date).filtered(
+            lambda i: not i.date_end or i.date_end >= date
+        )
+        
+        # Separar reglas normales de reglas AND
+        and_items = all_items.filtered(lambda i: i.apply_and_logic and i.and_group > 0)
+        normal_items = all_items.filtered(lambda i: not i.apply_and_logic or i.and_group == 0)
+        
+        if not and_items:
+            return all_items
+        
+        # Agrupar por grupos AND
+        and_groups = {}
+        for item in and_items:
+            if item.and_group not in and_groups:
+                and_groups[item.and_group] = []
+            and_groups[item.and_group].append(item)
+        
+        # Verificar grupos AND
+        valid_and_items = self.env['product.pricelist.item']
+        for group_id, group_items in and_groups.items():
+            # Verificar que todas las reglas del grupo se cumplan para todos los productos
+            all_products_match = True
+            
+            for product, qty, partner in products_qty_partner:
+                group_matches_for_product = all(
+                    self._check_rule_match(item, product, qty, partner, date, uom_id)
+                    for item in group_items
+                )
+                
+                if not group_matches_for_product:
+                    all_products_match = False
+                    break
+            
+            # Si todas las reglas del grupo se cumplen para todos los productos,
+            # agregamos estas reglas a las válidas
+            if all_products_match:
+                valid_and_items |= self.env['product.pricelist.item'].browse([i.id for i in group_items])
+        
+        # Retornar reglas normales + reglas AND válidas
+        return normal_items | valid_and_items
+
     @api.model
     def _compute_price_rule(self, products_qty_partner, date=False, uom_id=False, compute_price=True, **kwargs):
         """
@@ -143,12 +147,45 @@ class ProductPricelist(models.Model):
         if not date:
             date = fields.Date.context_today(self)
         
-        # Obtener items filtrados (incluyendo lógica AND)
-        items = self._compute_price_rule_get_items(products_qty_partner, date, uom_id)
-        
-        # Llamar al método padre con los items filtrados y todos los parámetros
-        results = super(ProductPricelist, self)._compute_price_rule(
-            products_qty_partner, date=date, uom_id=uom_id, compute_price=compute_price, **kwargs
+        # Verificar si hay reglas AND activas
+        has_and_rules = any(
+            item.apply_and_logic and item.and_group > 0 
+            for item in self.item_ids
         )
         
-        return results
+        # Si no hay reglas AND, usar el comportamiento estándar
+        if not has_and_rules:
+            return super(ProductPricelist, self)._compute_price_rule(
+                products_qty_partner, date=date, uom_id=uom_id, compute_price=compute_price, **kwargs
+            )
+        
+        # Temporalmente deshabilitar las reglas AND que no se deben aplicar
+        items_to_filter = self._get_applicable_pricelist_items(products_qty_partner, date, uom_id)
+        all_item_ids = set(self.item_ids.ids)
+        items_to_keep = set(items_to_filter.ids)
+        items_to_disable = all_item_ids - items_to_keep
+        
+        # Si hay items a deshabilitar temporalmente
+        if items_to_disable:
+            # Crear un contexto para marcar los items que deben ser ignorados
+            self_with_context = self.with_context(disabled_pricelist_items=items_to_disable)
+            
+            # Filtrar temporalmente los items antes de llamar al super
+            original_items = self.item_ids
+            try:
+                # Temporalmente modificar item_ids para que super() solo vea los items válidos
+                self.item_ids = items_to_filter
+                
+                result = super(ProductPricelist, self_with_context)._compute_price_rule(
+                    products_qty_partner, date=date, uom_id=uom_id, compute_price=compute_price, **kwargs
+                )
+            finally:
+                # Restaurar los items originales
+                self.item_ids = original_items
+            
+            return result
+        else:
+            # Si no hay items para deshabilitar, llamar directamente al super
+            return super(ProductPricelist, self)._compute_price_rule(
+                products_qty_partner, date=date, uom_id=uom_id, compute_price=compute_price, **kwargs
+            )
