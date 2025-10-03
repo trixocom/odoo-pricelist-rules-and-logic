@@ -5,6 +5,23 @@ Todos los cambios notables en este proyecto serán documentados en este archivo.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [18.0.1.0.5] - 2025-10-03
+
+### Corregido
+- 🐛 **ValueError al desempaquetar products_qty_partner**: Corregido error al cambiar cantidades en líneas de venta
+  - Error resuelto: "ValueError: not enough values to unpack (expected 3, got 1)"
+  - El método `_compute_price_rule()` puede ser llamado de múltiples formas:
+    - Con una lista de tuplas: `[(product, qty, partner), ...]`
+    - Con un solo producto: `_compute_price_rule(product, qty=x, partner=y)`
+  - Nuevo método `_normalize_products_qty_partner()` para unificar ambos formatos
+  - Manejo robusto de desempaquetado de tuplas con soporte para 1, 2 o 3 elementos
+  - Extracción segura de `qty` y `partner` desde kwargs cuando no están en la tupla
+
+### Técnico
+- Mejora en la robustez del código para manejar diferentes firmas de llamada
+- Mejor compatibilidad con módulos de terceros que llaman a `_compute_price_rule()`
+- Código más defensivo con validación de tipos y longitudes de tuplas
+
 ## [18.0.1.0.4] - 2025-10-03
 
 ### Corregido
