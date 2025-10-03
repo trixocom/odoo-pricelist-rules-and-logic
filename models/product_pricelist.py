@@ -56,7 +56,7 @@ class ProductPricelist(models.Model):
         
         return True
 
-    def _get_applicable_rules_with_and_logic(self, product, qty, date, partner):
+    def _get_applicable_rules_with_and_logic(self, product, qty, date, partner, order_products=None):
         """Retorna las reglas aplicables considerando la lógica AND"""
         self.ensure_one()
         
@@ -73,13 +73,12 @@ class ProductPricelist(models.Model):
         normal_rules = all_rules.filtered(lambda r: not r.apply_and_logic or r.and_group == 0)
         
         if not and_rules:
+            _logger.info(f"AND Logic: No hay reglas AND activas")
             return all_rules
         
-        # Obtener todos los productos de la orden desde el contexto
-        order_products = self.env.context.get('pricelist_order_products', [])
-        
+        # Si no hay productos de la orden en contexto, no podemos evaluar AND
         if not order_products:
-            _logger.info(f"AND Logic: No hay productos en el contexto, usando solo el producto actual")
+            _logger.info(f"AND Logic: No hay productos en contexto - usando solo reglas normales")
             return normal_rules
         
         _logger.info(f"AND Logic: Evaluando {len(and_rules)} reglas AND con {len(order_products)} productos")
@@ -97,104 +96,94 @@ class ProductPricelist(models.Model):
         for group_id, group_rules in and_groups.items():
             group_valid = True
             
+            _logger.info(f"AND Logic: === Evaluando GRUPO {group_id} con {len(group_rules)} reglas ===")
+            
             # CADA regla del grupo debe tener AL MENOS UN producto que haga match
             for rule in group_rules:
                 rule_has_match = False
+                rule_name = rule.product_id.name if rule.product_id else f"min_qty:{rule.min_quantity}"
                 
                 for prod_data in order_products:
-                    # prod_data es un diccionario con 'product', 'qty', 'partner'
                     prod = prod_data.get('product')
                     prod_qty = prod_data.get('qty', 1.0)
                     
                     if self._check_product_match(rule, prod, prod_qty, partner):
-                        _logger.info(f"AND Logic: Regla {rule.id} (min_qty:{rule.min_quantity}) MATCH con {prod.name} (qty:{prod_qty})")
+                        _logger.info(f"AND Logic:   ✓ Regla '{rule_name}' MATCH con {prod.name} (qty:{prod_qty})")
                         rule_has_match = True
                         break
                 
                 if not rule_has_match:
-                    _logger.info(f"AND Logic: Regla {rule.id} NO tiene match - Grupo {group_id} INVÁLIDO")
+                    _logger.info(f"AND Logic:   ✗ Regla '{rule_name}' NO tiene match - GRUPO {group_id} DESCARTADO")
                     group_valid = False
                     break
             
             if group_valid:
-                _logger.info(f"AND Logic: Grupo {group_id} VÁLIDO - Agregando {len(group_rules)} reglas")
+                _logger.info(f"AND Logic: ✓✓✓ GRUPO {group_id} VÁLIDO - Agregando {len(group_rules)} reglas ✓✓✓")
                 valid_and_rules |= self.env['product.pricelist.item'].browse([r.id for r in group_rules])
             else:
-                _logger.info(f"AND Logic: Grupo {group_id} INVÁLIDO - Descartando reglas")
+                _logger.info(f"AND Logic: ✗✗✗ GRUPO {group_id} INVÁLIDO - Descartando reglas ✗✗✗")
         
         result = normal_rules | valid_and_rules
-        _logger.info(f"AND Logic: Retornando {len(result)} reglas ({len(normal_rules)} normales + {len(valid_and_rules)} AND)")
+        _logger.info(f"AND Logic: FINAL - Retornando {len(result)} reglas ({len(normal_rules)} normales + {len(valid_and_rules)} AND válidas)")
         return result
 
-    @api.model
-    def _compute_price_rule_multi(self, products_qty_partner, date=False, uom_id=False):
-        """Override para implementar lógica AND evaluando productos individuales con contexto"""
-        # Verificar si hay reglas AND en alguna de las pricelists involucradas
-        has_and_rules = False
-        for pricelist in self:
-            if pricelist.item_ids.filtered(lambda i: i.apply_and_logic and i.and_group > 0):
-                has_and_rules = True
-                break
+    def _get_product_price(self, product, quantity, partner=None, date=None, uom_id=None):
+        """Override principal - intercepta TODOS los cálculos de precios"""
+        self.ensure_one()
         
-        # Si no hay reglas AND, usar comportamiento estándar
+        # Verificar si hay reglas AND
+        has_and_rules = any(
+            item.apply_and_logic and item.and_group > 0 
+            for item in self.item_ids
+        )
+        
         if not has_and_rules:
-            return super()._compute_price_rule_multi(products_qty_partner, date=date, uom_id=uom_id)
+            # Sin reglas AND, comportamiento estándar
+            return super()._get_product_price(product, quantity, partner, date, uom_id)
         
-        if not date:
-            date = fields.Date.context_today(self)
+        _logger.info(f"\n{'='*80}")
+        _logger.info(f"AND Logic: INICIO - Calculando precio para {product.name} (qty:{quantity})")
+        _logger.info(f"{'='*80}")
         
-        # Resultado: {pricelist_id: {product_id: (price, rule_id)}}
-        results = {}
+        # Obtener productos de la orden desde el contexto
+        order_products = self.env.context.get('pricelist_order_products')
         
-        for pricelist in self:
-            results[pricelist.id] = {}
-            
-            # Preparar datos de todos los productos de la orden para el contexto
-            order_products_data = []
-            for prod, qty, partner in products_qty_partner:
-                order_products_data.append({
-                    'product': prod,
-                    'qty': qty,
-                    'partner': partner
-                })
-            
-            # Procesar cada producto individualmente con el contexto completo
-            for product, qty, partner in products_qty_partner:
-                # Obtener reglas aplicables con lógica AND
-                pricelist_with_context = pricelist.with_context(
-                    pricelist_order_products=order_products_data
-                )
-                
-                applicable_rules = pricelist_with_context._get_applicable_rules_with_and_logic(
-                    product, qty, date, partner
-                )
-                
-                # Crear un recordset temporal con solo las reglas aplicables
-                # usando un dominio SQL para mejor performance
-                if applicable_rules:
-                    # Filtrar las reglas del pricelist actual
-                    temp_items = applicable_rules.filtered(lambda r: r.pricelist_id.id == pricelist.id)
-                    
-                    # Crear un pricelist temporal en memoria
-                    temp_pricelist_vals = {
-                        'name': pricelist.name,
-                        'currency_id': pricelist.currency_id.id,
-                        'company_id': pricelist.company_id.id if pricelist.company_id else False,
-                    }
-                    
-                    # Usar sudo y new() para evitar problemas de permisos
-                    temp_pricelist = pricelist.sudo().new(temp_pricelist_vals)
-                    temp_pricelist.item_ids = temp_items
-                    
-                    # Llamar al super con el pricelist filtrado
-                    temp_result = super(ProductPricelist, temp_pricelist)._compute_price_rule_multi(
-                        [(product, qty, partner)], date=date, uom_id=uom_id
-                    )
-                    
-                    if temp_pricelist.id in temp_result and product.id in temp_result[temp_pricelist.id]:
-                        results[pricelist.id][product.id] = temp_result[temp_pricelist.id][product.id]
-                else:
-                    # Sin reglas aplicables, usar precio base
-                    results[pricelist.id][product.id] = (product.lst_price, False)
+        if not order_products:
+            _logger.warning(f"AND Logic: ⚠️ NO hay contexto de orden - intentando obtener de sale.order.line")
+            # Intentar obtener desde la orden actual si existe
+            sale_line = self.env.context.get('sale_order_line')
+            if sale_line and sale_line.order_id:
+                order_products = []
+                for line in sale_line.order_id.order_line:
+                    if line.product_id:
+                        order_products.append({
+                            'product': line.product_id,
+                            'qty': line.product_uom_qty,
+                            'partner': sale_line.order_id.partner_id
+                        })
+                _logger.info(f"AND Logic: Recuperados {len(order_products)} productos de la orden")
         
-        return results
+        # Obtener reglas aplicables con lógica AND
+        applicable_rules = self._get_applicable_rules_with_and_logic(
+            product, quantity, date or fields.Date.context_today(self), partner, order_products
+        )
+        
+        # Crear pricelist temporal con solo las reglas aplicables
+        temp_pricelist_vals = {
+            'name': self.name,
+            'currency_id': self.currency_id.id,
+            'company_id': self.company_id.id if self.company_id else False,
+        }
+        
+        temp_pricelist = self.sudo().new(temp_pricelist_vals)
+        temp_pricelist.item_ids = applicable_rules
+        
+        # Calcular precio con el pricelist filtrado
+        result = super(ProductPricelist, temp_pricelist)._get_product_price(
+            product, quantity, partner, date, uom_id
+        )
+        
+        _logger.info(f"AND Logic: Precio final calculado: ${result}")
+        _logger.info(f"{'='*80}\n")
+        
+        return result
