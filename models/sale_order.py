@@ -36,9 +36,10 @@ class SaleOrderLine(models.Model):
                 all_order_products=order_products
             )
             
+            # CORREGIDO: Llamar correctamente con kwargs
             line.pricelist_item_id = pricelist_with_context._get_product_rule(
-                line.product_id,
-                line.product_uom_qty,
+                product=line.product_id,
+                quantity=line.product_uom_qty,
                 uom=line.product_uom,
                 date=line.order_id.date_order,
             )[1]
