@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  web:
+    image: odoo:17.0
+    container_name: odoo_web
+    depends_on:
+      - db
+    ports:
+      - "8069:8069"
+    volumes:
+      # Módulo personalizado
+      - .:/mnt/extra-addons/odoo-pricelist-rules-and-logic
+      # Datos de Odoo
+      - odoo-web-data:/var/lib/odoo
+      # Configuración (opcional)
+      # - ./config:/etc/odoo
+    environment:
+      - HOST=db
+      - USER=odoo
+      - PASSWORD=odoo_password
+      - POSTGRES_DB=postgres
+    command: -- --dev=reload
+    restart: unless-stopped
+    networks:
+      - odoo-network
+
+  db:
+    image: postgres:15-alpine
+    container_name: odoo_db
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=odoo
+      - POSTGRES_PASSWORD=odoo_password
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - odoo-db-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - odoo-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Opcional: PgAdmin para administrar la base de datos
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: odoo_pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@example.com
+      - PGADMIN_DEFAULT_PASSWORD=admin
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    restart: unless-stopped
+    networks:
+      - odoo-network
+    depends_on:
+      - db
+
+volumes:
+  odoo-web-data:
+    driver: local
+  odoo-db-data:
+    driver: local
+  pgadmin-data:
+    driver: local
+
+networks:
+  odoo-network:
+    driver: bridge
