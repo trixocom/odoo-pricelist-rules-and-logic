@@ -56,32 +56,23 @@ class ProductPricelist(models.Model):
         
         return True
 
-    def _get_applicable_rules_with_and_logic(self, product, qty, date, partner, order_products=None):
-        """Retorna las reglas aplicables considerando la lógica AND"""
-        self.ensure_one()
-        
-        # Obtener todas las reglas activas en el rango de fechas
-        domain = [('pricelist_id', '=', self.id)]
-        if date:
-            domain += ['|', ('date_start', '=', False), ('date_start', '<=', date),
-                      '|', ('date_end', '=', False), ('date_end', '>=', date)]
-        
-        all_rules = self.env['product.pricelist.item'].search(domain)
+    def _filter_rules_with_and_logic(self, rules, order_products, partner):
+        """Filtra reglas considerando la lógica AND"""
         
         # Separar reglas AND de reglas normales
-        and_rules = all_rules.filtered(lambda r: r.apply_and_logic and r.and_group > 0)
-        normal_rules = all_rules.filtered(lambda r: not r.apply_and_logic or r.and_group == 0)
+        and_rules = rules.filtered(lambda r: r.apply_and_logic and r.and_group > 0)
+        normal_rules = rules.filtered(lambda r: not r.apply_and_logic or r.and_group == 0)
         
         if not and_rules:
-            _logger.info(f"AND Logic: No hay reglas AND activas")
-            return all_rules
+            _logger.info(f"AND Logic: No hay reglas AND en el conjunto")
+            return rules
         
         # Si no hay productos de la orden en contexto, no podemos evaluar AND
         if not order_products:
             _logger.info(f"AND Logic: No hay productos en contexto - usando solo reglas normales")
             return normal_rules
         
-        _logger.info(f"AND Logic: Evaluando {len(and_rules)} reglas AND con {len(order_products)} productos")
+        _logger.info(f"AND Logic: Filtrando {len(and_rules)} reglas AND con {len(order_products)} productos")
         
         # Agrupar reglas AND por grupo
         and_groups = {}
@@ -124,70 +115,43 @@ class ProductPricelist(models.Model):
                 _logger.info(f"AND Logic: ✗✗✗ GRUPO {group_id} INVÁLIDO - Descartando reglas ✗✗✗")
         
         result = normal_rules | valid_and_rules
-        _logger.info(f"AND Logic: FINAL - Retornando {len(result)} reglas ({len(normal_rules)} normales + {len(valid_and_rules)} AND válidas)")
+        _logger.info(f"AND Logic: Retornando {len(result)} reglas filtradas ({len(normal_rules)} normales + {len(valid_and_rules)} AND)")
         return result
 
-    def get_product_price(self, product, quantity, partner=None, date=None, uom_id=None):
-        """Override del método público - intercepta TODOS los cálculos de precios"""
-        self.ensure_one()
+    def _get_applicable_rules(self, products, date, **kwargs):
+        """Override del método que obtiene reglas aplicables.
         
-        # Verificar si hay reglas AND
+        Este es el método que Odoo llama internamente para obtener las reglas
+        que se deben evaluar. Aquí interceptamos y filtramos según lógica AND.
+        """
+        # Llamar al super para obtener las reglas estándar
+        rules = super()._get_applicable_rules(products, date, **kwargs)
+        
+        # Verificar si hay reglas AND en este pricelist
         has_and_rules = any(
             item.apply_and_logic and item.and_group > 0 
             for item in self.item_ids
         )
         
         if not has_and_rules:
-            # Sin reglas AND, comportamiento estándar
-            return super().get_product_price(
-                product, 
-                quantity, 
-                partner,
-                date=date or False,
-                uom_id=uom_id or False
-            )
+            # Sin reglas AND, retornar reglas estándar
+            return rules
         
         _logger.info(f"\n{'='*80}")
-        _logger.info(f"AND Logic: INICIO - Calculando precio para {product.name} (qty:{quantity})")
+        _logger.info(f"AND Logic: Filtrando reglas para {len(products)} producto(s)")
         _logger.info(f"{'='*80}")
         
         # Obtener productos de la orden desde el contexto
         order_products = self.env.context.get('pricelist_order_products')
         
-        if not order_products:
-            _logger.warning(f"AND Logic: ⚠️ NO hay contexto de orden - usando reglas normales")
+        # Obtener partner desde kwargs o contexto
+        partner = kwargs.get('partner') or self.env.context.get('partner_id')
+        if partner and isinstance(partner, int):
+            partner = self.env['res.partner'].browse(partner)
         
-        # Obtener reglas aplicables con lógica AND
-        applicable_rules = self._get_applicable_rules_with_and_logic(
-            product, 
-            quantity, 
-            date or fields.Date.context_today(self), 
-            partner, 
-            order_products
-        )
+        # Filtrar reglas con lógica AND
+        filtered_rules = self._filter_rules_with_and_logic(rules, order_products, partner)
         
-        # SOLUCIÓN: Modificar temporalmente los items del pricelist actual
-        # Guardar items originales
-        original_items = self.item_ids
+        _logger.info(f"{'='*80}\n")
         
-        try:
-            # Reemplazar temporalmente con las reglas filtradas
-            self.item_ids = applicable_rules
-            
-            # Llamar al super() en self (no en un recordset temporal)
-            result = super().get_product_price(
-                product,
-                quantity,
-                partner or self.env['res.partner'],
-                date=date or False,
-                uom_id=uom_id or False
-            )
-            
-            _logger.info(f"AND Logic: Precio final calculado: ${result}")
-            _logger.info(f"{'='*80}\n")
-            
-            return result
-            
-        finally:
-            # SIEMPRE restaurar los items originales
-            self.item_ids = original_items
+        return filtered_rules
