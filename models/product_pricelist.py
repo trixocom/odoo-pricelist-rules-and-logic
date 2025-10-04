@@ -118,18 +118,20 @@ class ProductPricelist(models.Model):
         _logger.info(f"AND Logic Filter: Retornando {len(result)} reglas filtradas ({len(normal_rules)} normales + {len(valid_and_rules)} AND)")
         return result
 
-    def _get_applicable_rules(self, products, date, **kwargs):
-        """Override del método que obtiene reglas aplicables."""
+    def _get_applicable_pricelist_items(self, products_qty_partner, date, uom_id=False):
+        """Override del método CORRECTO que obtiene reglas aplicables en Odoo 18."""
         
         # LOG CRÍTICO: Verificar que este método se ejecuta
         _logger.info(f"\n{'@'*80}")
-        _logger.info(f"AND Logic Pricelist: _get_applicable_rules EJECUTÁNDOSE")
+        _logger.info(f"AND Logic Pricelist:  _get_applicable_pricelist_items EJECUTÁNDOSE")
         _logger.info(f"  Pricelist: {self.name}")
-        _logger.info(f"  Productos: {[p.name for p in products]}")
+        _logger.info(f"  products_qty_partner: {len(products_qty_partner)} productos")
+        for pqp in products_qty_partner:
+            _logger.info(f"    - {pqp[0].name}: qty={pqp[1]}")
         _logger.info(f"{'@'*80}")
         
         # Llamar al super para obtener las reglas estándar
-        rules = super()._get_applicable_rules(products, date, **kwargs)
+        rules = super()._get_applicable_pricelist_items(products_qty_partner, date, uom_id)
         
         _logger.info(f"AND Logic Pricelist: Super retornó {len(rules)} reglas")
         for rule in rules:
@@ -154,10 +156,8 @@ class ProductPricelist(models.Model):
         if order_products:
             _logger.info(f"AND Logic Pricelist: {len(order_products)} productos en contexto")
         
-        # Obtener partner desde kwargs o contexto
-        partner = kwargs.get('partner') or self.env.context.get('partner_id')
-        if partner and isinstance(partner, int):
-            partner = self.env['res.partner'].browse(partner)
+        # Obtener partner del primer elemento de products_qty_partner
+        partner = products_qty_partner[0][2] if products_qty_partner else None
         
         # Filtrar reglas con lógica AND
         filtered_rules = self._filter_rules_with_and_logic(rules, order_products, partner)
