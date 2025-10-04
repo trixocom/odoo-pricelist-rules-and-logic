@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Pricelist Rules AND Logic',
-    'version': '18.0.1.0.25',
+    'version': '18.0.1.0.26',
     'category': 'Sales',
     'summary': 'Implementa lógica AND entre reglas seleccionadas de lista de precios',
     'description': """
@@ -16,6 +16,7 @@
         ----------------
         * Campo booleano para marcar reglas que deben cumplirse conjuntamente
         * Evaluación AND de múltiples reglas marcadas
+        * Evaluación GLOBAL: si una regla del grupo no se cumple, ninguna se aplica
         * Compatible con la lógica estándar de Odoo
         * Fácil configuración desde la interfaz de usuario
         * Detecta automáticamente todos los productos de la orden de venta

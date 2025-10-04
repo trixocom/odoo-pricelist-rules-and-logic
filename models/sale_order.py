@@ -72,27 +72,33 @@ class SaleOrderLine(models.Model):
                         })
                 orders_context[order_id] = order_products
                 
-                _logger.info(f"AND Logic Sale: Orden {order_id} con {len(order_products)} productos:")
+                _logger.info(f"AND Logic Sale: Orden {line.order_id.name} con {len(order_products)} productos:")
                 for i, prod_data in enumerate(order_products, 1):
                     _logger.info(f"  {i}. {prod_data['product'].name} - Qty: {prod_data['qty']}")
         
-        # Procesar líneas con contexto inyectado
-        for line in lines_with_and_logic:
-            order_products = orders_context.get(line.order_id.id, [])
+        # IMPORTANTE: Inyectar contexto compartido UNA VEZ para todas las líneas de la misma orden
+        # Esto asegura que la evaluación global de grupos AND se haga solo una vez
+        for order_id, order_products in orders_context.items():
+            order_lines = lines_with_and_logic.filtered(lambda l: l.order_id.id == order_id)
             
-            _logger.info(f"AND Logic Sale: Inyectando contexto para {line.product_id.name}")
+            _logger.info(f"\n{'>'*80}")
+            _logger.info(f"AND Logic Sale: Procesando {len(order_lines)} líneas de la orden {order_lines[0].order_id.name}")
+            _logger.info(f"{'>'*80}")
             
-            # Inyectar contexto y llamar al super()
-            line_with_context = line.with_context(
-                pricelist_order_products=order_products
+            # Inyectar contexto compartido para todas las líneas de esta orden
+            # CLAVE: El contexto se comparte, así la evaluación global se hace solo una vez
+            lines_with_context = order_lines.with_context(
+                pricelist_order_products=order_products,
+                valid_and_groups=None  # Forzar nueva evaluación global
             )
             
-            # Dejar que Odoo calcule el precio normalmente
-            super(SaleOrderLine, line_with_context)._compute_price_unit()
-            
-            _logger.info(f"AND Logic Sale: Precio calculado: {line.price_unit}")
+            # Procesar cada línea
+            for line in lines_with_context:
+                _logger.info(f"\nAND Logic Sale: Calculando precio para {line.product_id.name}")
+                super(SaleOrderLine, line)._compute_price_unit()
+                _logger.info(f"AND Logic Sale: Precio final: {line.price_unit}")
         
-        _logger.info(f"{'='*80}\n")
+        _logger.info(f"\n{'='*80}\n")
         
         # Procesar líneas sin reglas AND
         lines_without_and_logic = self - lines_with_and_logic
