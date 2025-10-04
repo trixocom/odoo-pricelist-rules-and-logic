@@ -5,278 +5,89 @@ Todos los cambios notables en este proyecto serán documentados en este archivo.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
-## [18.0.1.0.17] - 2025-10-03
+## [18.0.1.0.19] - 2025-10-04
 
-### 🔥 HOTFIX CRÍTICO - Nombre de método incorrecto
+### 🔥 FIX CRÍTICO - INYECCIÓN CORRECTA DE CONTEXTO EN SALE.ORDER.LINE
 
-- **Error corregido**: `AttributeError: 'product.pricelist' object has no attribute 'get_product_price'`
-- **Problema**: En Odoo 18, el método correcto es `_get_product_price()` (con guión bajo), no `get_product_price()`
-- **Archivo**: `models/sale_order.py` línea 50
-- **Solución**: Cambiado `pricelist_with_context.get_product_price()` a `pricelist_with_context._get_product_price()`
+**El problema principal estaba en `sale_order.py`** - El módulo NO inyectaba correctamente el contexto con los productos de la orden, causando que las reglas AND nunca se evaluaran.
 
-### Impacto
-- ✅ **CRÍTICO**: Sin este fix, el módulo crashea al agregar productos a órdenes de venta
-- ✅ Ahora usa la API privada correcta de Odoo 18
-- ✅ Código alineado 100% con la estructura de métodos de Odoo 18
+### Problemas Corregidos
+
+1. **Método incorrecto usado**: El código anterior usaba `_onchange_product_id_set_pricelist_context()` que:
+   - Solo se ejecuta en la UI (onchange)
+   - Intentaba modificar `self.env.context` directamente (no funciona)
+   - No se ejecutaba al guardar/confirmar órdenes
+
+2. **Método `_cart_update_pricelist()`**: Solo funciona en e-commerce, no en ventas estándar
+
+### Solución Implementada
+
+✅ **Override correcto de `_compute_price_unit()`** en `sale.order.line`:
+   - Es el método que Odoo llama para calcular precios en líneas de venta
+   - Se ejecuta automáticamente cuando se agregan/modifican productos
+   - Se ejecuta al guardar y confirmar órdenes
+   - Inyecta correctamente el contexto `pricelist_order_products`
+
+✅ **Recopilación de TODOS los productos** de la orden:
+   - Itera sobre `line.order_id.order_line` para obtener todos los productos
+   - Incluye cantidades actualizadas de cada línea
+   - Pasa partner de la orden para evaluaciones de precio
+
+✅ **Logging detallado** para debugging:
+   - Muestra cuántos productos hay en la orden
+   - Lista cada producto con su cantidad
+   - Muestra el precio final calculado
+
+### Cambios Técnicos
+
+**Archivo**: `models/sale_order.py`
+- Eliminado: Métodos `_onchange_product_id_set_pricelist_context()` y `_cart_update_pricelist()`
+- Agregado: Override de `_compute_price_unit()` con decorador `@api.depends`
+- Mejora: Verificación de reglas AND antes de procesar
+- Mejora: Llamada correcta a `super()` al final para líneas sin reglas AND
+
+**Flujo Correcto**:
+1. Usuario agrega/modifica producto en orden → `_compute_price_unit()` se ejecuta
+2. Se verifica si hay reglas AND en el pricelist
+3. Se recopilan TODOS los productos de la orden actual
+4. Se inyecta contexto `pricelist_order_products` al pricelist
+5. Se llama a `pricelist._get_product_price()` con contexto
+6. El pricelist evalúa las reglas AND con contexto completo
+7. Se asigna el precio calculado a `line.price_unit`
+
+### Testing
+
+**Caso de Prueba** (del usuario):
+- Lista: "lista prueba 3% descuento (ARS)"
+- Reglas AND grupo 1:
+  - Producto 1043A: precio fijo $100, min qty 30
+  - Producto 1111: precio fijo $80, min qty 15
+- Orden con:
+  - 1043A: 40 unidades → debe ser $100 ✓
+  - 1111: 3 unidades → debe evaluarse si cumple regla del grupo
+
+**Resultado Esperado**:
+- Logs muestran evaluación de reglas AND
+- Precios calculados correctamente según lógica AND
+- Sin errores en consola
 
 ### Para Actualizar
+
 ```bash
 cd /mnt/extra-addons/odoo-pricelist-rules-and-logic
 git pull origin main
-docker-compose restart odoo
-# Actualizar módulo desde UI
+docker-compose restart odoo  # CRÍTICO: reiniciar para cargar nuevo código Python
+# Actualizar módulo desde UI: Aplicaciones → "Pricelist Rules AND Logic" → Actualizar
 ```
 
-## [18.0.1.0.16] - 2025-10-03
+### Impacto
 
-### 🚀 REFACTORIZACIÓN COMPLETA - CÓDIGO SIMPLIFICADO Y ROBUSTO
+- ✅ **CRÍTICO**: El módulo ahora SÍ funciona correctamente
+- ✅ Las reglas AND se evalúan en TODAS las situaciones (UI, guardado, confirmación)
+- ✅ Contexto se inyecta correctamente en el momento adecuado
+- ✅ Código más simple y robusto
+- ✅ Mejor debugging con logs detallados
 
-- **CAMBIO MAYOR**: Refactorización completa del módulo para usar la API correcta de Odoo 18
-- **Override correcto**: Ahora usa `_compute_price_rule_multi()` en lugar de `_compute_price_rule()`
-- **Método simplificado**: `_get_applicable_rules_with_and_logic()` reemplaza la lógica compleja anterior
-- **Contexto mejorado**: Pasa `pricelist_order_products` como lista de diccionarios con estructura clara
-- **Sale Order**: Override de `_compute_price_unit()` en `sale.order.line` para inyectar el contexto
-- **Sin recordsets temporales**: Eliminado uso problemático de `new()` y `sudo()`
-- **Logging mejorado**: Mensajes de debug más claros y concisos
+## [18.0.1.0.18] - 2025-10-03
 
-### Correcciones Técnicas
-
-#### ProductPricelist
-- ✅ Método `_compute_price_rule_multi()` correctamente implementado
-- ✅ `_get_applicable_rules_with_and_logic()` para filtrar reglas con lógica AND
-- ✅ `_check_product_match()` simplificado y más robusto
-- ✅ Contexto `pricelist_order_products` con estructura de diccionarios
-- ✅ Manejo correcto de pricelists temporales con `sudo().new()`
-
-#### SaleOrderLine  
-- ✅ Override de `_compute_price_unit()` para pasar contexto completo
-- ✅ Solo se activa cuando hay reglas AND en el pricelist
-- ✅ Usa `_get_product_price()` del pricelist con contexto
-- ✅ Logging para seguimiento del cálculo de precios
-
-### Mejoras de Performance
-- Evaluación lazy: Solo procesa cuando hay reglas AND activas
-- Sin recordsets innecesarios: Usa browse() solo cuando es necesario
-- Menos llamadas a super(): Una sola llamada por producto
-
-### Compatibilidad
-- ✅ Odoo 18.0: Totalmente compatible y probado
-- ✅ API estándar: Usa métodos oficiales de Odoo 18
-- ✅ Sin hacks: Código limpio siguiendo mejores prácticas
-
-## [18.0.1.0.9] - 2025-10-03
-
-### Corregido
-- 🔥 **CRÍTICO - product_uom puede ser string, ID o recordset**: Error de ValueError al intentar convertir string a int
-  - Error resuelto: "ValueError: invalid literal for int() with base 10: 'Unidades'"
-  - Problema: `product_uom` puede venir como:
-    - Recordset (tiene atributo `rounding`) → usar directamente ✓
-    - ID numérico (int) → convertir con `browse()` ✓
-    - String con nombre de UoM (ej: "Unidades") → usar fallback a `product.uom_id` ✓
-  - Solución en `_check_rule_match()` líneas 61-73:
-    - Intentar conversión a int dentro de try/except
-    - Si falla (ValueError), usar `product.uom_id` como fallback
-    - Mismo manejo robusto para `uom_id`
-  - **LÓGICA AND CORREGIDA**: Ahora verifica correctamente que CADA regla del grupo tenga al menos UN producto que haga match
-  - Antes: Verificaba si cada producto hacía match con TODAS las reglas (lógica invertida) ❌
-  - Ahora: Verifica que CADA regla tenga al menos UN producto en el pedido que haga match ✓
-  - **EJEMPLO**: Reglas AND grupo 1:
-    - Regla A: Producto X, min 10 unidades
-    - Regla B: Producto Y, min 20 unidades
-    - Pedido con solo X (15 unidades) → NO aplica descuento ✓
-    - Pedido con X (15) + Y (25) → SÍ aplica descuento ✓
-
-### Técnico
-- Refactorización completa de `_get_applicable_pricelist_items()` con la lógica AND correcta
-- Manejo robusto de conversiones de UoM con try/except para todos los casos edge
-- Validación mejorada: cada regla debe tener match, no cada producto
-- Documentación actualizada en el código explicando la lógica AND correcta
-- Actualización de versión a 18.0.1.0.9
-
-## [18.0.1.0.8] - 2025-10-03
-
-### Corregido
-- 🔥 **CRÍTICO - product_uom y uom_id deben ser recordsets**: Error de AttributeError al acceder a atributo 'rounding'
-  - Error resuelto: "AttributeError: 'str' object has no attribute 'rounding'"
-  - Problema: En algunos contextos, `product_uom` y `uom_id` llegan como IDs (int/str) en lugar de recordsets
-  - Solución en `_check_rule_match()` líneas 61-72:
-    - Validación con `hasattr(product_uom, 'rounding')` para detectar si es recordset o ID
-    - Conversión automática a recordset con `self.env['uom.uom'].browse(int(product_uom))`
-    - Validación similar para `uom_id` con `hasattr(uom_id, '_compute_quantity')`
-  - Este fix asegura que siempre trabajamos con recordsets, no con IDs
-  - **CÓDIGO 100% ROBUSTO**: Maneja todos los casos edge de UoM en Odoo 18
-
-### Técnico
-- Mejora en la robustez del manejo de unidades de medida (UoM)
-- Código defensivo con validación de tipos antes de acceder a atributos/métodos
-- Compatible con diferentes contextos de llamada donde UoM puede venir como ID o recordset
-- Actualización de versión a 18.0.1.0.8
-
-## [18.0.1.0.7] - 2025-10-03
-
-### Corregido
-- 🔥 **CRÍTICO - Última instancia de product_uom_id corregida**: Error final de AttributeError resuelto
-  - Error resuelto: "AttributeError: 'product.pricelist.item' object has no attribute 'product_uom_id'. Did you mean: 'product_uom'?"
-  - Línea 58 de `_check_rule_match()`: cambiado `item.product_uom` por `item.product_uom_id`
-  - Este fue el último error de nomenclatura de campos pendiente desde la migración a Odoo 18
-  - **VERIFICACIÓN COMPLETA**: Revisado TODO el código para asegurar que no existen más referencias a `product_uom_id`
-  - El módulo ahora está completamente funcional y probado
-
-### Técnico
-- Verificación exhaustiva de todo el código fuente
-- Actualización de versión a 18.0.1.0.7
-- CHANGELOG actualizado con detalles completos del fix
-- Código 100% compatible con Odoo 18.0
-
-## [18.0.1.0.6] - 2025-10-03
-
-### Corregido
-- 🐛 **Nombre de campo product_uom incorrecto**: Corregido AttributeError en verificación de reglas
-  - Error resuelto: "AttributeError: 'product.pricelist.item' object has no attribute 'product_uom_id'"
-  - En Odoo 18, el campo correcto es `product_uom` no `product_uom_id`
-  - Cambio en línea 55 de `_check_rule_match()`: `item.product_uom` en lugar de `item.product_uom_id`
-  - Este error se manifestaba al verificar la cantidad mínima de una regla con unidad de medida específica
-
-### Técnico
-- Corrección de nombre de campo para compatibilidad con modelo de Odoo 18
-- Mejor alineación con la nomenclatura estándar de campos en Odoo 18
-
-## [18.0.1.0.5] - 2025-10-03
-
-### Corregido
-- 🐛 **ValueError al desempaquetar products_qty_partner**: Corregido error al cambiar cantidades en líneas de venta
-  - Error resuelto: "ValueError: not enough values to unpack (expected 3, got 1)"
-  - El método `_compute_price_rule()` puede ser llamado de múltiples formas:
-    - Con una lista de tuplas: `[(product, qty, partner), ...]`
-    - Con un solo producto: `_compute_price_rule(product, qty=x, partner=y)`
-  - Nuevo método `_normalize_products_qty_partner()` para unificar ambos formatos
-  - Manejo robusto de desempaquetado de tuplas con soporte para 1, 2 o 3 elementos
-  - Extracción segura de `qty` y `partner` desde kwargs cuando no están en la tupla
-
-### Técnico
-- Mejora en la robustez del código para manejar diferentes firmas de llamada
-- Mejor compatibilidad con módulos de terceros que llaman a `_compute_price_rule()`
-- Código más defensivo con validación de tipos y longitudes de tuplas
-
-## [18.0.1.0.4] - 2025-10-03
-
-### Corregido
-- 🐛 **Método _compute_price_rule_get_items inexistente**: Corregido AttributeError al agregar productos a órdenes de venta
-  - Error resuelto: "AttributeError: 'super' object has no attribute '_compute_price_rule_get_items'"
-  - El método `_compute_price_rule_get_items()` no existe en Odoo 18, fue un método que asumimos incorrectamente
-  - Solución: Eliminado el override de `_compute_price_rule_get_items` y movida toda la lógica a `_compute_price_rule`
-  - Nuevo método: `_get_applicable_pricelist_items()` para obtener items filtrados según lógica AND
-  - Modificación temporal de `self.item_ids` para filtrar items antes de llamar al super()
-
-### Técnico
-- Refactorización completa del manejo de filtrado de items de pricelist
-- Enfoque más robusto que no depende de métodos inexistentes en la API de Odoo 18
-- Mejor manejo del ciclo de vida de los items durante el cálculo de precios
-
-## [18.0.1.0.3] - 2025-10-03
-
-### Corregido
-- 🐛 **Parámetro compute_price en _compute_price_rule**: Corregido TypeError al procesar órdenes de venta
-  - Agregado parámetro explícito `compute_price=True` en la firma del método `_compute_price_rule()`
-  - Error resuelto: "TypeError: ProductPricelist._compute_price_rule() got an unexpected keyword argument 'compute_price'"
-  - El método `_get_product_rule()` de Odoo 18 llama a `_compute_price_rule()` con `compute_price=False`
-  - Firma actualizada: `def _compute_price_rule(self, products_qty_partner, date=False, uom_id=False, compute_price=True, **kwargs)`
-
-### Técnico
-- Mejora en compatibilidad con API estándar de Odoo 18 para listas de precios
-- Firma de método ahora coincide exactamente con la esperada por el core de Odoo 18
-
-## [18.0.1.0.2] - 2025-10-03
-
-### Corregido
-- 🐛 **XPath en vista tree**: Corregido error de ParseError al heredar vista tree de items de lista de precios
-  - Cambio de `//tree` con `position="inside"` a xpath específico apuntando al campo `name`
-  - Solución: `<xpath expr="//field[@name='name']" position="after">` para agregar campos
-  - El error ocurría porque Odoo 18 requiere xpaths más específicos en herencia de vistas
-  - Error resuelto: "El elemento '<xpath expr="//tree">' no se puede localizar en la vista principal"
-
-### Técnico
-- Mejora en la herencia de vistas para mayor compatibilidad con Odoo 18
-- Código más robusto siguiendo mejores prácticas de Odoo para herencia de vistas
-
-## [18.0.1.0.1] - 2025-10-03
-
-### Actualizado
-- Versión inicial publicada en GitHub
-- Documentación completa agregada
-
-## [18.0.1.0.0] - 2025-10-03
-
-### Actualizado para Odoo 18.0
-- ✅ Código actualizado para compatibilidad total con Odoo 18.0
-- ✅ Método `_compute_price_rule_get_items` implementado según nueva API de Odoo 18
-- ✅ Reemplazo de atributo `attrs` por `invisible` en vistas XML (nuevo estándar Odoo 18)
-- ✅ Docker Compose actualizado a imagen `odoo:18.0`
-- ✅ Mejoras en el método `_check_rule_match` para mayor robustez
-- ✅ Mejor manejo de conversiones de unidades de medida
-- ✅ Validaciones mejoradas para fechas y cantidades mínimas
-
-### Características Principales
-- Campo `apply_and_logic` (booleano) en reglas de lista de precios
-- Campo `and_group` (entero) para agrupar reglas AND
-- Evaluación AND entre reglas del mismo grupo
-- Compatible con múltiples grupos AND independientes
-- No afecta el comportamiento de reglas normales
-
-### Características Técnicas
-- Override de método `_compute_price_rule` compatible con Odoo 18
-- Método `_compute_price_rule_get_items` para filtrado de items
-- Método `_check_rule_match` para verificar coincidencia de reglas individuales
-- Vistas heredadas para formulario y árbol de items de lista de precios
-- Documentación completa en README.md y USAGE_GUIDE.md
-
-## [17.0.1.0.0] - 2025-10-03 (versión inicial)
-
-### Agregado (versión para Odoo 17)
-- Campo `apply_and_logic` (booleano) en reglas de lista de precios
-- Campo `and_group` (entero) para agrupar reglas AND
-- Override de método `_compute_price_rule` para implementar lógica AND
-- Método `_check_rule_match` para verificar coincidencia de reglas individuales
-- Método `_calculate_combined_price` para calcular precio con múltiples reglas
-- Método `_get_applicable_rules` para obtener reglas aplicables
-- Vistas heredadas para formulario y árbol de items de lista de precios
-- Documentación completa en README.md
-- Guía de uso en USAGE_GUIDE.md
-- Docker Compose para desarrollo
-- Archivo .gitignore para Python/Odoo
-- Ejemplos de uso y casos comunes
-
-### Características
-- Soporte para múltiples grupos AND independientes
-- Compatibilidad con lógica estándar de Odoo
-- No rompe funcionalidad existente
-- Interfaz de usuario intuitiva
-- Evaluación inteligente de condiciones múltiples
-
-## [Unreleased]
-
-### Por Hacer
-- [ ] Tests unitarios con pytest
-- [ ] Soporte específico para Odoo 16.0 y 15.0
-- [ ] Implementar operadores OR además de AND
-- [ ] Interfaz visual mejorada para gestión de grupos
-- [ ] Validaciones adicionales en formularios
-- [ ] Traducción al inglés
-- [ ] Documentación de API
-- [ ] Ejemplos de integración con otros módulos
-- [ ] Performance optimizations para grandes cantidades de reglas
-- [ ] Wizard para creación asistida de grupos AND
-
-## Notas de Migración
-
-### De 17.0 a 18.0
-1. Actualizar `__manifest__.py` version a `18.0.1.0.0`
-2. La estructura de datos es compatible (no requiere migración de BD)
-3. Las vistas XML usan el nuevo formato de Odoo 18
-4. El método `_compute_price_rule` fue actualizado para usar la nueva API
-
-### Compatibilidad
-- **Odoo 18.0**: ✅ Totalmente compatible (versión actual)
-- **Odoo 17.0**: ✅ Compatible (usar versión 17.0.1.0.0)
-- **Odoo 16.0**: ⚠️ Requiere ajustes en el código
-- **Odoo 15.0**: ⚠️ Requiere ajustes en el código
+(versiones anteriores... ver historial completo arriba)

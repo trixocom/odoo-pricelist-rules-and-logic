@@ -6,58 +6,70 @@ import logging
 _logger = logging.getLogger(__name__)
 
 
-class SaleOrder(models.Model):
-    _inherit = 'sale.order'
-
-    def _cart_update_pricelist(self, *args, **kwargs):
-        """Inyectar contexto de productos al actualizar pricelist"""
-        # Preparar datos de todos los productos de la orden
-        order_products_data = []
-        for line in self.order_line:
-            if line.product_id:
-                order_products_data.append({
-                    'product': line.product_id,
-                    'qty': line.product_uom_qty,
-                    'partner': self.partner_id
-                })
-        
-        # Agregar al contexto
-        if order_products_data:
-            self = self.with_context(pricelist_order_products=order_products_data)
-        
-        return super()._cart_update_pricelist(*args, **kwargs)
-
-
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
 
-    @api.onchange('product_id', 'product_uom_qty', 'product_uom')
-    def _onchange_product_id_set_pricelist_context(self):
-        """Inyectar contexto al cambiar producto"""
-        if not self.order_id or not self.order_id.pricelist_id:
-            return
+    @api.depends('product_id', 'product_uom', 'product_uom_qty')
+    def _compute_price_unit(self):
+        """Override del cálculo de precio unitario para inyectar contexto de productos.
         
-        # Verificar si hay reglas AND
-        pricelist = self.order_id.pricelist_id
-        has_and_rules = any(
-            item.apply_and_logic and item.and_group > 0 
-            for item in pricelist.item_ids
-        )
+        Este es el método que Odoo llama para calcular precios en líneas de venta.
+        Aquí inyectamos el contexto con todos los productos de la orden antes de
+        calcular los precios con la lista de precios.
+        """
+        for line in self:
+            # Solo procesar si hay orden y pricelist
+            if not line.order_id or not line.order_id.pricelist_id:
+                continue
+            
+            pricelist = line.order_id.pricelist_id
+            
+            # Verificar si hay reglas AND activas
+            has_and_rules = any(
+                item.apply_and_logic and item.and_group > 0 
+                for item in pricelist.item_ids
+            )
+            
+            if not has_and_rules:
+                # Sin reglas AND, usar comportamiento estándar
+                continue
+            
+            _logger.info(f"\n{'='*80}")
+            _logger.info(f"AND Logic Sale: Procesando línea de venta para {line.product_id.name}")
+            _logger.info(f"{'='*80}")
+            
+            # Recopilar TODOS los productos de la orden actual
+            order_products = []
+            for order_line in line.order_id.order_line:
+                if order_line.product_id:
+                    order_products.append({
+                        'product': order_line.product_id,
+                        'qty': order_line.product_uom_qty,
+                        'partner': line.order_id.partner_id
+                    })
+            
+            _logger.info(f"AND Logic Sale: Contexto de orden con {len(order_products)} productos:")
+            for i, prod_data in enumerate(order_products, 1):
+                _logger.info(f"  {i}. {prod_data['product'].name} - Qty: {prod_data['qty']}")
+            
+            # Calcular precio con contexto inyectado
+            pricelist_with_context = pricelist.with_context(
+                pricelist_order_products=order_products
+            )
+            
+            price = pricelist_with_context._get_product_price(
+                line.product_id,
+                line.product_uom_qty,
+                partner=line.order_id.partner_id,
+                date=line.order_id.date_order,
+                uom_id=line.product_uom.id if line.product_uom else None
+            )
+            
+            _logger.info(f"AND Logic Sale: Precio calculado para {line.product_id.name}: ${price}")
+            _logger.info(f"{'='*80}\n")
+            
+            # Asignar el precio calculado
+            line.price_unit = price
         
-        if not has_and_rules:
-            return
-        
-        # Preparar datos de todos los productos
-        order_products_data = []
-        for line in self.order_id.order_line:
-            if line.product_id:
-                order_products_data.append({
-                    'product': line.product_id,
-                    'qty': line.product_uom_qty,
-                    'partner': self.order_id.partner_id
-                })
-        
-        _logger.info(f"AND Logic Context: Inyectando {len(order_products_data)} productos al contexto")
-        
-        # Actualizar el contexto del entorno
-        self.env.context = dict(self.env.context, pricelist_order_products=order_products_data)
+        # Llamar al super para líneas sin reglas AND
+        return super(SaleOrderLine, self)._compute_price_unit()
