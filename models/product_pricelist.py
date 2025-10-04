@@ -166,26 +166,28 @@ class ProductPricelist(models.Model):
             order_products
         )
         
-        # Crear pricelist temporal con solo las reglas aplicables
-        temp_pricelist_vals = {
-            'name': self.name,
-            'currency_id': self.currency_id.id,
-            'company_id': self.company_id.id if self.company_id else False,
-        }
+        # SOLUCIÓN: Modificar temporalmente los items del pricelist actual
+        # Guardar items originales
+        original_items = self.item_ids
         
-        temp_pricelist = self.sudo().new(temp_pricelist_vals)
-        temp_pricelist.item_ids = applicable_rules
-        
-        # CRÍTICO: Calcular precio usando el método público get_product_price con keyword arguments
-        result = super(ProductPricelist, temp_pricelist).get_product_price(
-            product,
-            quantity,
-            partner or self.env['res.partner'],
-            date=date or False,
-            uom_id=uom_id or False
-        )
-        
-        _logger.info(f"AND Logic: Precio final calculado: ${result}")
-        _logger.info(f"{'='*80}\n")
-        
-        return result
+        try:
+            # Reemplazar temporalmente con las reglas filtradas
+            self.item_ids = applicable_rules
+            
+            # Llamar al super() en self (no en un recordset temporal)
+            result = super().get_product_price(
+                product,
+                quantity,
+                partner or self.env['res.partner'],
+                date=date or False,
+                uom_id=uom_id or False
+            )
+            
+            _logger.info(f"AND Logic: Precio final calculado: ${result}")
+            _logger.info(f"{'='*80}\n")
+            
+            return result
+            
+        finally:
+            # SIEMPRE restaurar los items originales
+            self.item_ids = original_items
