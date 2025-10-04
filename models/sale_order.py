@@ -11,12 +11,14 @@ class SaleOrderLine(models.Model):
 
     @api.depends('product_id', 'product_uom', 'product_uom_qty')
     def _compute_price_unit(self):
-        """Override del cálculo de precio unitario para inyectar contexto de productos.
+        """Inyecta contexto de productos antes de calcular precios.
         
-        Este es el método que Odoo llama para calcular precios en líneas de venta.
-        Aquí inyectamos el contexto con todos los productos de la orden antes de
-        calcular los precios con la lista de precios.
+        NO calcula precios manualmente - solo inyecta el contexto y deja
+        que Odoo haga su trabajo. El filtrado de reglas AND se hace
+        automáticamente en _get_applicable_rules() del pricelist.
         """
+        lines_with_and_logic = self.env['sale.order.line']
+        
         for line in self:
             # Solo procesar si hay orden y pricelist
             if not line.order_id or not line.order_id.pricelist_id:
@@ -30,47 +32,52 @@ class SaleOrderLine(models.Model):
                 for item in pricelist.item_ids
             )
             
-            if not has_and_rules:
-                # Sin reglas AND, usar comportamiento estándar
-                continue
+            if has_and_rules:
+                lines_with_and_logic |= line
+        
+        if not lines_with_and_logic:
+            # Sin reglas AND, comportamiento estándar
+            return super()._compute_price_unit()
+        
+        _logger.info(f"\n{'='*80}")
+        _logger.info(f"AND Logic Sale: Procesando {len(lines_with_and_logic)} línea(s) con reglas AND")
+        _logger.info(f"{'='*80}")
+        
+        # Recopilar TODOS los productos de TODAS las órdenes involucradas
+        orders_context = {}
+        for line in lines_with_and_logic:
+            order_id = line.order_id.id
+            if order_id not in orders_context:
+                order_products = []
+                for order_line in line.order_id.order_line:
+                    if order_line.product_id:
+                        order_products.append({
+                            'product': order_line.product_id,
+                            'qty': order_line.product_uom_qty,
+                            'partner': line.order_id.partner_id
+                        })
+                orders_context[order_id] = order_products
+                
+                _logger.info(f"AND Logic Sale: Orden {order_id} con {len(order_products)} productos:")
+                for i, prod_data in enumerate(order_products, 1):
+                    _logger.info(f"  {i}. {prod_data['product'].name} - Qty: {prod_data['qty']}")
+        
+        # Procesar líneas con contexto inyectado
+        for line in lines_with_and_logic:
+            order_products = orders_context.get(line.order_id.id, [])
             
-            _logger.info(f"\n{'='*80}")
-            _logger.info(f"AND Logic Sale: Procesando línea de venta para {line.product_id.name}")
-            _logger.info(f"{'='*80}")
-            
-            # Recopilar TODOS los productos de la orden actual
-            order_products = []
-            for order_line in line.order_id.order_line:
-                if order_line.product_id:
-                    order_products.append({
-                        'product': order_line.product_id,
-                        'qty': order_line.product_uom_qty,
-                        'partner': line.order_id.partner_id
-                    })
-            
-            _logger.info(f"AND Logic Sale: Contexto de orden con {len(order_products)} productos:")
-            for i, prod_data in enumerate(order_products, 1):
-                _logger.info(f"  {i}. {prod_data['product'].name} - Qty: {prod_data['qty']}")
-            
-            # Calcular precio con contexto inyectado
-            pricelist_with_context = pricelist.with_context(
+            # Inyectar contexto y llamar al super()
+            # El override de _get_applicable_rules() filtrará automáticamente
+            line_with_context = line.with_context(
                 pricelist_order_products=order_products
             )
             
-            # CRÍTICO: Usar get_product_price (sin guion bajo) con keyword arguments
-            price = pricelist_with_context.get_product_price(
-                line.product_id,
-                line.product_uom_qty,
-                line.order_id.partner_id or self.env['res.partner'],
-                date=line.order_id.date_order or False,
-                uom_id=line.product_uom.id if line.product_uom else False
-            )
-            
-            _logger.info(f"AND Logic Sale: Precio calculado para {line.product_id.name}: ${price}")
-            _logger.info(f"{'='*80}\n")
-            
-            # Asignar el precio calculado
-            line.price_unit = price
+            # Dejar que Odoo calcule el precio normalmente
+            super(SaleOrderLine, line_with_context)._compute_price_unit()
         
-        # Llamar al super para líneas sin reglas AND
-        return super(SaleOrderLine, self)._compute_price_unit()
+        _logger.info(f"{'='*80}\n")
+        
+        # Procesar líneas sin reglas AND
+        lines_without_and_logic = self - lines_with_and_logic
+        if lines_without_and_logic:
+            return super(SaleOrderLine, lines_without_and_logic)._compute_price_unit()
