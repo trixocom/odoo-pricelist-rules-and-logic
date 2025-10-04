@@ -11,32 +11,46 @@ class SaleOrderLine(models.Model):
 
     @api.depends('product_id', 'product_uom', 'product_uom_qty')
     def _compute_price_unit(self):
-        """Inyecta contexto de productos antes de calcular precios.
+        """Inyecta contexto de productos antes de calcular precios."""
         
-        NO calcula precios manualmente - solo inyecta el contexto y deja
-        que Odoo haga su trabajo. El filtrado de reglas AND se hace
-        automáticamente en _get_applicable_rules() del pricelist.
-        """
+        # LOG CRÍTICO: Verificar que este método se ejecuta
+        _logger.info(f"\n{'#'*80}")
+        _logger.info(f"AND Logic Sale: _compute_price_unit EJECUTÁNDOSE para {len(self)} línea(s)")
+        _logger.info(f"{'#'*80}")
+        
         lines_with_and_logic = self.env['sale.order.line']
         
         for line in self:
+            _logger.info(f"AND Logic Sale: Procesando línea: {line.product_id.name if line.product_id else 'SIN PRODUCTO'}")
+            
             # Solo procesar si hay orden y pricelist
             if not line.order_id or not line.order_id.pricelist_id:
+                _logger.info(f"AND Logic Sale: Línea sin orden o pricelist, saltando")
                 continue
             
             pricelist = line.order_id.pricelist_id
+            _logger.info(f"AND Logic Sale: Pricelist: {pricelist.name}")
+            _logger.info(f"AND Logic Sale: Items en pricelist: {len(pricelist.item_ids)}")
             
             # Verificar si hay reglas AND activas
-            has_and_rules = any(
-                item.apply_and_logic and item.and_group > 0 
-                for item in pricelist.item_ids
-            )
+            and_items = [item for item in pricelist.item_ids if item.apply_and_logic and item.and_group > 0]
+            _logger.info(f"AND Logic Sale: Items con AND: {len(and_items)}")
+            
+            if and_items:
+                for item in and_items:
+                    prod_name = item.product_id.name if item.product_id else 'Todos'
+                    _logger.info(f"  - Item AND: {prod_name}, grupo={item.and_group}, min_qty={item.min_quantity}")
+            
+            has_and_rules = len(and_items) > 0
             
             if has_and_rules:
+                _logger.info(f"AND Logic Sale: ✓ Línea TIENE reglas AND, agregando a lista")
                 lines_with_and_logic |= line
+            else:
+                _logger.info(f"AND Logic Sale: ✗ Línea NO tiene reglas AND")
         
         if not lines_with_and_logic:
-            # Sin reglas AND, comportamiento estándar
+            _logger.info(f"AND Logic Sale: NO hay líneas con reglas AND, llamando super() normal")
             return super()._compute_price_unit()
         
         _logger.info(f"\n{'='*80}")
@@ -66,18 +80,22 @@ class SaleOrderLine(models.Model):
         for line in lines_with_and_logic:
             order_products = orders_context.get(line.order_id.id, [])
             
+            _logger.info(f"AND Logic Sale: Inyectando contexto para {line.product_id.name}")
+            
             # Inyectar contexto y llamar al super()
-            # El override de _get_applicable_rules() filtrará automáticamente
             line_with_context = line.with_context(
                 pricelist_order_products=order_products
             )
             
             # Dejar que Odoo calcule el precio normalmente
             super(SaleOrderLine, line_with_context)._compute_price_unit()
+            
+            _logger.info(f"AND Logic Sale: Precio calculado: {line.price_unit}")
         
         _logger.info(f"{'='*80}\n")
         
         # Procesar líneas sin reglas AND
         lines_without_and_logic = self - lines_with_and_logic
         if lines_without_and_logic:
+            _logger.info(f"AND Logic Sale: Procesando {len(lines_without_and_logic)} líneas sin reglas AND")
             return super(SaleOrderLine, lines_without_and_logic)._compute_price_unit()
