@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from odoo import models, api
+from odoo import models, api, fields
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -57,12 +57,13 @@ class SaleOrderLine(models.Model):
                 pricelist_order_products=order_products
             )
             
-            price = pricelist_with_context._get_product_price(
+            # CRÍTICO: Usar get_product_price (sin guion bajo) con keyword arguments
+            price = pricelist_with_context.get_product_price(
                 line.product_id,
                 line.product_uom_qty,
-                partner=line.order_id.partner_id,
-                date=line.order_id.date_order,
-                uom_id=line.product_uom.id if line.product_uom else None
+                line.order_id.partner_id or self.env['res.partner'],
+                date=line.order_id.date_order or False,
+                uom_id=line.product_uom.id if line.product_uom else False
             )
             
             _logger.info(f"AND Logic Sale: Precio calculado para {line.product_id.name}: ${price}")

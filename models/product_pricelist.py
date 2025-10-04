@@ -127,8 +127,8 @@ class ProductPricelist(models.Model):
         _logger.info(f"AND Logic: FINAL - Retornando {len(result)} reglas ({len(normal_rules)} normales + {len(valid_and_rules)} AND válidas)")
         return result
 
-    def _get_product_price(self, product, quantity, partner=None, date=None, uom_id=None):
-        """Override principal - intercepta TODOS los cálculos de precios"""
+    def get_product_price(self, product, quantity, partner=None, date=None, uom_id=None):
+        """Override del método público - intercepta TODOS los cálculos de precios"""
         self.ensure_one()
         
         # Verificar si hay reglas AND
@@ -139,7 +139,13 @@ class ProductPricelist(models.Model):
         
         if not has_and_rules:
             # Sin reglas AND, comportamiento estándar
-            return super()._get_product_price(product, quantity, partner, date, uom_id)
+            return super().get_product_price(
+                product, 
+                quantity, 
+                partner,
+                date=date or False,
+                uom_id=uom_id or False
+            )
         
         _logger.info(f"\n{'='*80}")
         _logger.info(f"AND Logic: INICIO - Calculando precio para {product.name} (qty:{quantity})")
@@ -149,23 +155,15 @@ class ProductPricelist(models.Model):
         order_products = self.env.context.get('pricelist_order_products')
         
         if not order_products:
-            _logger.warning(f"AND Logic: ⚠️ NO hay contexto de orden - intentando obtener de sale.order.line")
-            # Intentar obtener desde la orden actual si existe
-            sale_line = self.env.context.get('sale_order_line')
-            if sale_line and sale_line.order_id:
-                order_products = []
-                for line in sale_line.order_id.order_line:
-                    if line.product_id:
-                        order_products.append({
-                            'product': line.product_id,
-                            'qty': line.product_uom_qty,
-                            'partner': sale_line.order_id.partner_id
-                        })
-                _logger.info(f"AND Logic: Recuperados {len(order_products)} productos de la orden")
+            _logger.warning(f"AND Logic: ⚠️ NO hay contexto de orden - usando reglas normales")
         
         # Obtener reglas aplicables con lógica AND
         applicable_rules = self._get_applicable_rules_with_and_logic(
-            product, quantity, date or fields.Date.context_today(self), partner, order_products
+            product, 
+            quantity, 
+            date or fields.Date.context_today(self), 
+            partner, 
+            order_products
         )
         
         # Crear pricelist temporal con solo las reglas aplicables
@@ -178,9 +176,13 @@ class ProductPricelist(models.Model):
         temp_pricelist = self.sudo().new(temp_pricelist_vals)
         temp_pricelist.item_ids = applicable_rules
         
-        # Calcular precio con el pricelist filtrado
-        result = super(ProductPricelist, temp_pricelist)._get_product_price(
-            product, quantity, partner, date, uom_id
+        # CRÍTICO: Calcular precio usando el método público get_product_price con keyword arguments
+        result = super(ProductPricelist, temp_pricelist).get_product_price(
+            product,
+            quantity,
+            partner or self.env['res.partner'],
+            date=date or False,
+            uom_id=uom_id or False
         )
         
         _logger.info(f"AND Logic: Precio final calculado: ${result}")

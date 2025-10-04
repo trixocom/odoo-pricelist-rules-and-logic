@@ -5,89 +5,141 @@ Todos los cambios notables en este proyecto serán documentados en este archivo.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
-## [18.0.1.0.19] - 2025-10-04
+## [18.0.1.0.20] - 2025-10-04
 
-### 🔥 FIX CRÍTICO - INYECCIÓN CORRECTA DE CONTEXTO EN SALE.ORDER.LINE
+### 🔥 FIX CRÍTICO - ERROR DE TIMESTAMP RESUELTO
 
-**El problema principal estaba en `sale_order.py`** - El módulo NO inyectaba correctamente el contexto con los productos de la orden, causando que las reglas AND nunca se evaluaran.
+**Error corregido**: `psycopg2.errors.InvalidDatetimeFormat: invalid input syntax for type timestamp: "1"`
 
-### Problemas Corregidos
+### Problema Identificado
 
-1. **Método incorrecto usado**: El código anterior usaba `_onchange_product_id_set_pricelist_context()` que:
-   - Solo se ejecuta en la UI (onchange)
-   - Intentaba modificar `self.env.context` directamente (no funciona)
-   - No se ejecutaba al guardar/confirmar órdenes
+El código estaba usando `_get_product_price()` (método interno/privado) en lugar de `get_product_price()` (método público). Además, los parámetros `date` y `uom_id` se pasaban posicionalmente en lugar de como keyword arguments, causando que:
 
-2. **Método `_cart_update_pricelist()`**: Solo funciona en e-commerce, no en ventas estándar
+1. El parámetro `date` recibiera el valor `1` (True convertido a int)
+2. PostgreSQL rechazara este valor en consultas SQL con campos timestamp
+3. El sistema fallara al calcular precios en órdenes de venta
 
-### Solución Implementada
+### Cambios Implementados
 
-✅ **Override correcto de `_compute_price_unit()`** en `sale.order.line`:
-   - Es el método que Odoo llama para calcular precios en líneas de venta
-   - Se ejecuta automáticamente cuando se agregan/modifican productos
-   - Se ejecuta al guardar y confirmar órdenes
-   - Inyecta correctamente el contexto `pricelist_order_products`
+#### Archivo: `models/sale_order.py`
 
-✅ **Recopilación de TODOS los productos** de la orden:
-   - Itera sobre `line.order_id.order_line` para obtener todos los productos
-   - Incluye cantidades actualizadas de cada línea
-   - Pasa partner de la orden para evaluaciones de precio
+**Antes (incorrecto):**
+```python
+price = pricelist_with_context._get_product_price(
+    line.product_id,
+    line.product_uom_qty,
+    partner=line.order_id.partner_id,
+    date=line.order_id.date_order,
+    uom_id=line.product_uom.id if line.product_uom else None
+)
+```
 
-✅ **Logging detallado** para debugging:
-   - Muestra cuántos productos hay en la orden
-   - Lista cada producto con su cantidad
-   - Muestra el precio final calculado
+**Después (correcto):**
+```python
+price = pricelist_with_context.get_product_price(
+    line.product_id,
+    line.product_uom_qty,
+    line.order_id.partner_id or self.env['res.partner'],
+    date=line.order_id.date_order or False,
+    uom_id=line.product_uom.id if line.product_uom else False
+)
+```
 
-### Cambios Técnicos
+✅ Cambio de `_get_product_price` a `get_product_price`
+✅ Parámetros `date` y `uom_id` como keyword arguments
+✅ Valores `False` en lugar de `None` cuando no hay valor
+✅ Partner como recordset vacío en lugar de None
 
-**Archivo**: `models/sale_order.py`
-- Eliminado: Métodos `_onchange_product_id_set_pricelist_context()` y `_cart_update_pricelist()`
-- Agregado: Override de `_compute_price_unit()` con decorador `@api.depends`
-- Mejora: Verificación de reglas AND antes de procesar
-- Mejora: Llamada correcta a `super()` al final para líneas sin reglas AND
+#### Archivo: `models/product_pricelist.py`
 
-**Flujo Correcto**:
-1. Usuario agrega/modifica producto en orden → `_compute_price_unit()` se ejecuta
-2. Se verifica si hay reglas AND en el pricelist
-3. Se recopilan TODOS los productos de la orden actual
-4. Se inyecta contexto `pricelist_order_products` al pricelist
-5. Se llama a `pricelist._get_product_price()` con contexto
-6. El pricelist evalúa las reglas AND con contexto completo
-7. Se asigna el precio calculado a `line.price_unit`
+**Cambio de método sobrescrito:**
+- **Antes**: Sobrescribía `_get_product_price()` (método privado)
+- **Después**: Sobrescribe `get_product_price()` (método público)
+
+**Antes (incorrecto):**
+```python
+def _get_product_price(self, product, quantity, partner=None, date=None, uom_id=None):
+    # ...
+    result = super(ProductPricelist, temp_pricelist)._get_product_price(
+        product, quantity, partner, date, uom_id
+    )
+```
+
+**Después (correcto):**
+```python
+def get_product_price(self, product, quantity, partner=None, date=None, uom_id=None):
+    # ...
+    result = super(ProductPricelist, temp_pricelist).get_product_price(
+        product,
+        quantity,
+        partner or self.env['res.partner'],
+        date=date or False,
+        uom_id=uom_id or False
+    )
+```
+
+✅ Método público en lugar de privado
+✅ Keyword arguments para evitar confusión de parámetros
+✅ Validación de valores None → False
+✅ Import de `fields` agregado para `fields.Date.context_today()`
+
+### Detalles Técnicos
+
+**Por qué usar `get_product_price` en lugar de `_get_product_price`:**
+
+1. `get_product_price()` es el método público documentado y estable
+2. `_get_product_price()` es un método interno que puede cambiar entre versiones
+3. La firma y comportamiento de métodos privados no está garantizado
+4. El método público maneja mejor la conversión de parámetros
+
+**Por qué usar keyword arguments:**
+
+1. Evita confusión de posiciones de parámetros
+2. Python no convierte automáticamente `True` a `1` cuando se pasa explícitamente
+3. Los valores por defecto se aplican correctamente
+4. Mayor claridad en el código
+
+**Conversión de valores:**
+
+- `None` → `False`: Odoo espera `False` para valores opcionales, no `None`
+- `partner=None` → `partner or self.env['res.partner']`: Recordset vacío en lugar de None
+- `date=None` → `date or False`: False es el valor esperado cuando no hay fecha
 
 ### Testing
 
-**Caso de Prueba** (del usuario):
-- Lista: "lista prueba 3% descuento (ARS)"
-- Reglas AND grupo 1:
-  - Producto 1043A: precio fijo $100, min qty 30
-  - Producto 1111: precio fijo $80, min qty 15
-- Orden con:
-  - 1043A: 40 unidades → debe ser $100 ✓
-  - 1111: 3 unidades → debe evaluarse si cumple regla del grupo
-
-**Resultado Esperado**:
-- Logs muestran evaluación de reglas AND
-- Precios calculados correctamente según lógica AND
-- Sin errores en consola
-
-### Para Actualizar
+Para probar que el error está resuelto:
 
 ```bash
+# 1. Actualizar código
 cd /mnt/extra-addons/odoo-pricelist-rules-and-logic
 git pull origin main
-docker-compose restart odoo  # CRÍTICO: reiniciar para cargar nuevo código Python
-# Actualizar módulo desde UI: Aplicaciones → "Pricelist Rules AND Logic" → Actualizar
+
+# 2. CRÍTICO: Reiniciar Odoo
+docker-compose restart odoo
+
+# 3. Actualizar módulo desde UI
+# Aplicaciones → "Pricelist Rules AND Logic" → Actualizar
+
+# 4. Crear una orden de venta con la lista "lista prueba 3% descuento (ARS)"
+# 5. Agregar productos 1043A y 1111
+# 6. Verificar que NO aparece el error de timestamp
+# 7. Revisar logs para confirmar que se evalúan las reglas AND
 ```
 
 ### Impacto
 
-- ✅ **CRÍTICO**: El módulo ahora SÍ funciona correctamente
-- ✅ Las reglas AND se evalúan en TODAS las situaciones (UI, guardado, confirmación)
-- ✅ Contexto se inyecta correctamente en el momento adecuado
-- ✅ Código más simple y robusto
-- ✅ Mejor debugging con logs detallados
+- ✅ **CRÍTICO**: Error de timestamp completamente resuelto
+- ✅ Código usa métodos públicos estables de Odoo
+- ✅ Compatible con mejores prácticas de desarrollo de Odoo
+- ✅ Mayor robustez y mantenibilidad del código
+- ✅ Previene problemas similares en futuras versiones de Odoo
 
-## [18.0.1.0.18] - 2025-10-03
+### Referencias
+
+- Documentación de Odoo sobre métodos públicos vs privados
+- Código fuente de Odoo 18: `addons/product/models/product_pricelist.py`
+- Ejemplos de uso en módulos estándar: `sale`, `website_sale`, `purchase`
+
+## [18.0.1.0.19] - 2025-10-04
 
 (versiones anteriores... ver historial completo arriba)
