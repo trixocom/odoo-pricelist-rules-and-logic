@@ -169,25 +169,20 @@ class ProductPricelist(models.Model):
         _logger.info(f"\nAND Logic Filter: Retornando {len(result)} reglas ({len(normal_rules)} normales + {len(valid_and_rules)} AND)")
         return result
 
-    def _get_applicable_pricelist_items(self, products_qty_partner, date, uom_id=False):
-        """Override del método CORRECTO que obtiene reglas aplicables en Odoo 18."""
+    def _get_product_price_rule(self, product, quantity, uom, date, **kwargs):
+        """Override del método que calcula el precio según reglas.
+        
+        Este es el método correcto que se llama en Odoo 18.
+        """
+        self.ensure_one()
         
         # LOG CRÍTICO: Verificar que este método se ejecuta
         _logger.info(f"\n{'@'*80}")
-        _logger.info(f"AND Logic Pricelist: _get_applicable_pricelist_items EJECUTÁNDOSE")
+        _logger.info(f"AND Logic Pricelist: _get_product_price_rule EJECUTÁNDOSE")
         _logger.info(f"  Pricelist: {self.name}")
-        _logger.info(f"  products_qty_partner: {len(products_qty_partner)} productos")
-        for pqp in products_qty_partner:
-            _logger.info(f"    - {pqp[0].name}: qty={pqp[1]}")
+        _logger.info(f"  Producto: {product.name}")
+        _logger.info(f"  Cantidad: {quantity}")
         _logger.info(f"{'@'*80}")
-        
-        # Llamar al super para obtener las reglas estándar
-        rules = super()._get_applicable_pricelist_items(products_qty_partner, date, uom_id)
-        
-        _logger.info(f"AND Logic Pricelist: Super retornó {len(rules)} reglas")
-        for rule in rules:
-            prod_name = rule.product_id.name if rule.product_id else 'Todos'
-            _logger.info(f"  - Regla: {prod_name}, AND={rule.apply_and_logic}, grupo={rule.and_group}")
         
         # Verificar si hay reglas AND en este pricelist
         has_and_rules = any(
@@ -198,8 +193,8 @@ class ProductPricelist(models.Model):
         _logger.info(f"AND Logic Pricelist: has_and_rules = {has_and_rules}")
         
         if not has_and_rules:
-            _logger.info(f"AND Logic Pricelist: Sin reglas AND, retornando reglas estándar")
-            return rules
+            _logger.info(f"AND Logic Pricelist: Sin reglas AND, usando super()")
+            return super()._get_product_price_rule(product, quantity, uom, date, **kwargs)
         
         # Obtener productos de la orden desde el contexto
         order_products = self.env.context.get('pricelist_order_products')
@@ -207,13 +202,50 @@ class ProductPricelist(models.Model):
         if order_products:
             _logger.info(f"AND Logic Pricelist: {len(order_products)} productos en contexto")
         
-        # Obtener partner del primer elemento de products_qty_partner
-        partner = products_qty_partner[0][2] if products_qty_partner else None
+        # Si no hay contexto de orden, usar comportamiento normal
+        if not order_products:
+            _logger.info(f"AND Logic Pricelist: Sin contexto de orden, usando super()")
+            return super()._get_product_price_rule(product, quantity, uom, date, **kwargs)
         
-        # Filtrar reglas con lógica AND
-        filtered_rules = self._filter_rules_with_and_logic(rules, order_products, partner)
+        # Obtener partner del contexto o kwargs
+        partner = kwargs.get('partner') or self.env.context.get('partner')
         
-        _logger.info(f"AND Logic Pricelist: Retornando {len(filtered_rules)} reglas filtradas")
+        # Llamar al super para obtener todas las reglas aplicables
+        _logger.info(f"AND Logic Pricelist: Llamando super() para obtener reglas base")
+        price, rule_id = super()._get_product_price_rule(product, quantity, uom, date, **kwargs)
+        
+        # Si no hay regla aplicable, retornar
+        if not rule_id:
+            _logger.info(f"AND Logic Pricelist: Super no retornó regla, usando precio: {price}")
+            return price, rule_id
+        
+        # Obtener la regla
+        rule = self.env['product.pricelist.item'].browse(rule_id)
+        _logger.info(f"AND Logic Pricelist: Regla retornada: {rule.product_id.name if rule.product_id else 'Todos'}")
+        _logger.info(f"  - AND={rule.apply_and_logic}, grupo={rule.and_group}")
+        
+        # Si la regla no es AND, retornar normalmente
+        if not rule.apply_and_logic or rule.and_group == 0:
+            _logger.info(f"AND Logic Pricelist: Regla no es AND, retornando precio: {price}")
+            return price, rule_id
+        
+        # Evaluar si el grupo AND es válido
+        all_rules = self.item_ids
+        valid_groups = self.env.context.get('valid_and_groups')
+        
+        if valid_groups is None:
+            # Primera evaluación
+            valid_groups = self._evaluate_and_groups_globally(all_rules, order_products, partner)
+            self = self.with_context(valid_and_groups=valid_groups)
+        
+        # Si el grupo de la regla NO es válido, no aplicar el descuento
+        if rule.and_group not in valid_groups:
+            _logger.info(f"AND Logic Pricelist: GRUPO {rule.and_group} NO VÁLIDO - NO aplicar descuento")
+            _logger.info(f"  Retornando precio lista: {product.lst_price}")
+            return product.lst_price, False
+        
+        _logger.info(f"AND Logic Pricelist: GRUPO {rule.and_group} VÁLIDO - Aplicar descuento")
+        _logger.info(f"  Retornando precio: {price}")
         _logger.info(f"{'@'*80}\n")
         
-        return filtered_rules
+        return price, rule_id
